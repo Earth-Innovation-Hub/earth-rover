@@ -69,7 +69,8 @@ Payload mast: A load bearing mount-point at a height of 120cm from ground, is bu
 The electric tricycle’s avionics package consists of a Pixhawk 2.1 flight controller running a rover airframe on the PX4 autopilot software stack. The vehicle is capable of GPS and IMU based waypoint missions, as a base feature, with additional computer vision capabilities through simultaneous localization and mapping 
 
 Figure 2: QGroundControl GCS used for mission planning and situational awareness during a field trial at ASU campus (Dec 2023). 
-![image](https://github.com/user-attachments/assets/8c02a1dc-cda6-431c-b298-c8562db48d53)
+![image](https://github.com/user-attachments/assets/08483f81-e819-4b52-bc0f-bbcd1fadd7ce)
+
 
 (SLAM), ORBSLAM3, ROS, PX4, ROS, Gazebo, PX4 SITL digital twin, 
 
@@ -78,8 +79,7 @@ The system’s onboard computer runs ROS2, with ros nodes for all the cameras, s
 QGC allows GPS mission planning, with all operations possible without internet connectivity, on cached maps
 
 ## Mapping systems:
-![image](https://github.com/user-attachments/assets/347fb552-1ba4-4496-9c28-1300db70184c)
-
+![image](https://github.com/user-attachments/assets/163e7deb-a30d-4436-906e-73c8537e1836)
 
 Figure 3: Realtime mapping demo, while the vehicle is manually operated by a human. The system can leverage the 3D maps and localized vehicle path to plan unmanned operations to remap routes, for instance for biomass change estimation 
 
