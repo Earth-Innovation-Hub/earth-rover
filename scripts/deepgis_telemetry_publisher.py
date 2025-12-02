@@ -34,10 +34,10 @@ class DeepGISTelemetryPublisher(Node):
 
         # Declare parameters
         self.declare_parameter('deepgis_api_url', 'https://deepgis.org')
-        self.declare_parameter('api_key', '')
-        self.declare_parameter('asset_name', 'MAVROS Vehicle')
+        self.declare_parameter('api_key', 'test-missions')
+        self.declare_parameter('asset_name', 'EarthRover')
         self.declare_parameter('session_id', '')  # Auto-generated if empty
-        self.declare_parameter('project_title', 'MAVROS Data Collection')
+        self.declare_parameter('project_title', 'EarthRover: Affordable and Sustainable Mobility Autonomy for  4D Environmental Monitoring')
         self.declare_parameter('flight_mode', 'AUTO')
         self.declare_parameter('mission_type', 'Telemetry Collection')
         self.declare_parameter('notes', 'Automated telemetry collection from MAVROS')
@@ -45,6 +45,7 @@ class DeepGISTelemetryPublisher(Node):
         self.declare_parameter('publish_rate', 1.0)
         self.declare_parameter('batch_size', 10)
         self.declare_parameter('enable_batch_mode', True)
+        self.declare_parameter('batch_flush_interval', 5.0)  # Flush batches every N seconds even if not full
         
         # Get parameters
         self.api_url = self.get_parameter('deepgis_api_url').value
@@ -61,6 +62,7 @@ class DeepGISTelemetryPublisher(Node):
         self.publish_rate = self.get_parameter('publish_rate').value
         self.batch_size = self.get_parameter('batch_size').value
         self.enable_batch = self.get_parameter('enable_batch_mode').value
+        self.batch_flush_interval = self.get_parameter('batch_flush_interval').value
 
         # API endpoints
         self.api_endpoints = {
@@ -88,12 +90,26 @@ class DeepGISTelemetryPublisher(Node):
         self.gps_raw_buffer = []
         self.gps_estimated_buffer = []
         self.buffer_lock = Lock()
+        self.last_batch_flush_time = time.time()  # Track when we last flushed a batch
 
         # Latest data storage
         self.latest_odom = None
         self.latest_gps_raw = None
         self.latest_gps_estimated = None
         self.data_lock = Lock()
+        
+        # Track last formatted data to avoid redundant formatting
+        self.last_formatted_odom = None
+        self.last_formatted_gps_raw = None
+        self.last_formatted_gps_estimated = None
+        self.last_formatted_odom_hash = None
+        self.last_formatted_gps_raw_hash = None
+        self.last_formatted_gps_estimated_hash = None
+        
+        # Cache reference position values (avoid repeated checks)
+        self.cached_ref_lat = 0.0
+        self.cached_ref_lon = 0.0
+        self.cached_ref_alt = 0.0
 
         # QoS profile for MAVROS topics (best effort, like MAVROS)
         qos_profile = QoSProfile(
@@ -146,12 +162,54 @@ class DeepGISTelemetryPublisher(Node):
             1.0 / self.publish_rate,
             self.publish_telemetry
         )
+        
+        # Batch flush timer (for periodic flushing even if batch not full)
+        if self.enable_batch:
+            self.batch_flush_timer = self.create_timer(
+                self.batch_flush_interval,
+                self.flush_batch_if_needed
+            )
+        else:
+            self.batch_flush_timer = None
 
         self.get_logger().info('DeepGIS Telemetry Publisher initialized')
         self.get_logger().info(f'API URL: {self.api_url}')
         self.get_logger().info(f'Asset Name: {self.asset_name}')
         self.get_logger().info(f'Session ID: {self.session_id}')
         self.get_logger().info(f'Batch Mode: {self.enable_batch}')
+
+    def log_error_response(self, response, endpoint_name, request_url=None):
+        """
+        Log detailed error response from DeepGIS server.
+        
+        Args:
+            response: requests.Response object
+            endpoint_name: Name of the endpoint for logging context
+            request_url: Optional URL that was requested
+        """
+        url = request_url or (response.url if hasattr(response, 'url') else 'unknown')
+        
+        error_msg = f'[{endpoint_name}] Request failed'
+        error_msg += f'\n  URL: {url}'
+        error_msg += f'\n  Status Code: {response.status_code}'
+        error_msg += f'\n  Status Text: {response.reason if hasattr(response, "reason") else "N/A"}'
+        
+        # Try to parse JSON error response
+        try:
+            error_json = response.json()
+            error_msg += f'\n  Response JSON: {json.dumps(error_json, indent=2)}'
+        except (ValueError, json.JSONDecodeError):
+            # Not JSON, show raw text
+            response_text = response.text[:500]  # Limit to 500 chars
+            error_msg += f'\n  Response Text: {response_text}'
+            if len(response.text) > 500:
+                error_msg += '... (truncated)'
+        
+        # Log response headers if available
+        if hasattr(response, 'headers') and response.headers:
+            error_msg += f'\n  Response Headers: {dict(response.headers)}'
+        
+        self.get_logger().error(error_msg)
 
     def create_telemetry_session(self):
         """Create a new telemetry session with DeepGIS API (API compliant format)."""
@@ -175,12 +233,12 @@ class DeepGISTelemetryPublisher(Node):
                 self.session_active = True
                 self.get_logger().info(f'Created telemetry session: {self.session_id}')
             else:
-                self.get_logger().error(
-                    f'Failed to create session: {response.status_code} - {response.text}'
-                )
+                self.log_error_response(response, 'create_session', self.api_endpoints['create_session'])
 
         except requests.exceptions.RequestException as e:
             self.get_logger().error(f'Error creating telemetry session: {str(e)}')
+            if hasattr(e, 'response') and e.response is not None:
+                self.log_error_response(e.response, 'create_session', self.api_endpoints['create_session'])
         except Exception as e:
             self.get_logger().error(f'Unexpected error creating session: {str(e)}')
 
@@ -208,6 +266,10 @@ class DeepGISTelemetryPublisher(Node):
                 self.ref_lat = msg.latitude
                 self.ref_lon = msg.longitude
                 self.ref_alt = msg.altitude if not math.isnan(msg.altitude) else 0.0
+                # Cache the values to avoid repeated checks
+                self.cached_ref_lat = self.ref_lat
+                self.cached_ref_lon = self.ref_lon
+                self.cached_ref_alt = self.ref_alt
                 self.reference_set = True
                 self.get_logger().info(
                     f'Set reference position: ({self.ref_lat:.6f}, '
@@ -253,17 +315,18 @@ class DeepGISTelemetryPublisher(Node):
             List of 9 elements representing 3x3 matrix
         """
         if len(covariance_array) == 36:  # 6x6 matrix
-            # Extract relevant 3x3 block
-            matrix = []
-            for i in range(3):
-                for j in range(3):
-                    idx = (start_idx + i) * 6 + (start_idx + j)
-                    matrix.append(float(covariance_array[idx]))
+            # Extract relevant 3x3 block (optimized with list comprehension)
+            # Pre-calculate row offsets for efficiency
+            row_offsets = [(start_idx + i) * 6 for i in range(3)]
+            matrix = [
+                float(covariance_array[row_offsets[i] + (start_idx + j)])
+                for i in range(3) for j in range(3)
+            ]
             return matrix
         elif len(covariance_array) == 9:  # Already 3x3
             return [float(x) for x in covariance_array]
         else:
-            # Return identity if unknown format
+            # Return identity if unknown format (cached constant)
             return [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
 
     def extract_gps_accuracy(self, msg: NavSatFix):
@@ -297,21 +360,42 @@ class DeepGISTelemetryPublisher(Node):
         STATUS_SBAS_FIX = 1
         STATUS_GBAS_FIX = 2
         
-        Returns fix type: 0=no fix, 1=dead reckoning, 2=2D, 3=3D, 4=GPS+DR, 5=RTK Float, 6=RTK Fixed
+        Returns fix type: 0=no fix, 1=dead reckoning, 2=2D, 3=3D, 4=GPS+DR, 5=Time only
         """
         if status < 0:
             return 0  # No fix
         elif status == 0:
             return 3  # 3D fix
         elif status == 1:
-            return 4  # SBAS (augmented)
+            return 4  # SBAS (augmented, treat as GPS+DR)
         elif status == 2:
-            return 6  # GBAS (ground-based augmentation, treat as RTK)
+            return 4  # GBAS (ground-based augmentation, treat as GPS+DR)
         else:
             return 3  # Default to 3D
 
-    def format_odom_data(self, msg: Odometry):
+    def _compute_odom_hash(self, msg: Odometry):
+        """Compute a simple hash to detect if odom data changed."""
+        # Use timestamp and position as a simple change detector
+        return hash((
+            msg.header.stamp.sec,
+            msg.header.stamp.nanosec,
+            msg.pose.pose.position.x,
+            msg.pose.pose.position.y,
+            msg.pose.pose.position.z
+        ))
+    
+    def format_odom_data(self, msg: Odometry, use_cache=True):
         """Format odometry data for DeepGIS API (compliant format)."""
+        # Check if data changed (simple optimization)
+        if use_cache:
+            data_hash = self._compute_odom_hash(msg)
+            if data_hash == self.last_formatted_odom_hash and self.last_formatted_odom is not None:
+                # Data unchanged, return cached formatted data with updated timestamp
+                result = self.last_formatted_odom.copy()
+                result['timestamp'] = datetime.now().isoformat()
+                result['timestamp_usec'] = msg.header.stamp.sec * 1000000 + msg.header.stamp.nanosec // 1000
+                return result
+        
         # Convert quaternion to heading
         heading = self.quaternion_to_heading(
             msg.pose.pose.orientation.x,
@@ -327,7 +411,7 @@ class DeepGISTelemetryPublisher(Node):
         # Convert ROS timestamp to microseconds
         timestamp_usec = msg.header.stamp.sec * 1000000 + msg.header.stamp.nanosec // 1000
         
-        return {
+        result = {
             'session_id': self.session_id,
             'timestamp': datetime.now().isoformat(),
             'timestamp_usec': timestamp_usec,
@@ -341,13 +425,45 @@ class DeepGISTelemetryPublisher(Node):
             'heading_rate': float(msg.twist.twist.angular.z),
             'position_covariance': position_cov,
             'velocity_covariance': velocity_cov,
-            'ref_lat': self.ref_lat if self.ref_lat else 0.0,
-            'ref_lon': self.ref_lon if self.ref_lon else 0.0,
-            'ref_alt': self.ref_alt if self.ref_alt else 0.0
+            'ref_lat': self.cached_ref_lat,
+            'ref_lon': self.cached_ref_lon,
+            'ref_alt': self.cached_ref_alt
         }
+        
+        # Cache the result
+        if use_cache:
+            self.last_formatted_odom = result
+            self.last_formatted_odom_hash = data_hash
+        
+        return result
 
-    def format_gps_data(self, msg: NavSatFix):
+    def _compute_gps_hash(self, msg: NavSatFix):
+        """Compute a simple hash to detect if GPS data changed."""
+        return hash((
+            msg.header.stamp.sec,
+            msg.header.stamp.nanosec,
+            msg.latitude,
+            msg.longitude,
+            msg.altitude,
+            msg.status.status
+        ))
+    
+    def format_gps_data(self, msg: NavSatFix, use_cache=True, is_raw=True):
         """Format GPS fix data for DeepGIS API (compliant format)."""
+        # Check if data changed
+        if use_cache:
+            data_hash = self._compute_gps_hash(msg)
+            cache_hash = self.last_formatted_gps_raw_hash if is_raw else self.last_formatted_gps_estimated_hash
+            cached_data = self.last_formatted_gps_raw if is_raw else self.last_formatted_gps_estimated
+            
+            if data_hash == cache_hash and cached_data is not None:
+                # Data unchanged, return cached formatted data with updated timestamp
+                result = cached_data.copy()
+                result['timestamp'] = datetime.now().isoformat()
+                result['timestamp_usec'] = msg.header.stamp.sec * 1000000 + msg.header.stamp.nanosec // 1000
+                result['satellites_visible'] = int(self.satellites_visible)  # This can change
+                return result
+        
         # Extract accuracy
         eph, epv = self.extract_gps_accuracy(msg)
         
@@ -357,7 +473,7 @@ class DeepGISTelemetryPublisher(Node):
         # Convert ROS timestamp to microseconds
         timestamp_usec = msg.header.stamp.sec * 1000000 + msg.header.stamp.nanosec // 1000
         
-        return {
+        result = {
             'session_id': self.session_id,
             'timestamp': datetime.now().isoformat(),
             'timestamp_usec': timestamp_usec,
@@ -369,12 +485,33 @@ class DeepGISTelemetryPublisher(Node):
             'epv': float(epv),
             'satellites_visible': int(self.satellites_visible)
         }
+        
+        # Cache the result
+        if use_cache:
+            if is_raw:
+                self.last_formatted_gps_raw = result
+                self.last_formatted_gps_raw_hash = data_hash
+            else:
+                self.last_formatted_gps_estimated = result
+                self.last_formatted_gps_estimated_hash = data_hash
+        
+        return result
+
+    def flush_batch_if_needed(self):
+        """Periodically flush batches even if they're not full."""
+        if not self.session_active:
+            return
+        
+        # Timer fires at the right interval, so just flush if we have data
+        # send_batch() checks for empty buffers and returns early if nothing to send
+        self.send_batch()
 
     def publish_telemetry(self):
         """Publish telemetry data to DeepGIS API."""
         if not self.session_active:
             return
 
+        # Get data references quickly (minimal lock time)
         with self.data_lock:
             odom = self.latest_odom
             gps_raw = self.latest_gps_raw
@@ -382,29 +519,36 @@ class DeepGISTelemetryPublisher(Node):
 
         if self.enable_batch:
             # Batch mode: accumulate data and send in batches
+            # Format data outside the lock to reduce contention
+            formatted_odom = self.format_odom_data(odom) if odom else None
+            formatted_gps_raw = self.format_gps_data(gps_raw, is_raw=True) if gps_raw else None
+            formatted_gps_estimated = self.format_gps_data(gps_estimated, is_raw=False) if gps_estimated else None
+            
+            # Now add to buffers with minimal lock time
             with self.buffer_lock:
-                if odom:
-                    self.local_position_buffer.append(self.format_odom_data(odom))
-                if gps_raw:
-                    self.gps_raw_buffer.append(self.format_gps_data(gps_raw))
-                if gps_estimated:
-                    self.gps_estimated_buffer.append(self.format_gps_data(gps_estimated))
+                if formatted_odom:
+                    self.local_position_buffer.append(formatted_odom)
+                if formatted_gps_raw:
+                    self.gps_raw_buffer.append(formatted_gps_raw)
+                if formatted_gps_estimated:
+                    self.gps_estimated_buffer.append(formatted_gps_estimated)
 
-                # Check if we should send a batch
+                # Check if we should send a batch immediately (when threshold reached)
                 total_samples = (len(self.local_position_buffer) +
                                len(self.gps_raw_buffer) +
                                len(self.gps_estimated_buffer))
 
                 if total_samples >= self.batch_size:
+                    # send_batch() will update last_batch_flush_time
                     self.send_batch()
         else:
             # Real-time mode: send data immediately
             if odom:
-                self.send_local_position(self.format_odom_data(odom))
+                self.send_local_position(self.format_odom_data(odom, use_cache=False))
             if gps_raw:
-                self.send_gps_raw(self.format_gps_data(gps_raw))
+                self.send_gps_raw(self.format_gps_data(gps_raw, use_cache=False, is_raw=True))
             if gps_estimated:
-                self.send_gps_estimated(self.format_gps_data(gps_estimated))
+                self.send_gps_estimated(self.format_gps_data(gps_estimated, use_cache=False, is_raw=False))
 
     def send_local_position(self, data):
         """Send local position data to API."""
@@ -415,11 +559,11 @@ class DeepGISTelemetryPublisher(Node):
                 timeout=5.0
             )
             if response.status_code not in [200, 201]:
-                self.get_logger().warn(
-                    f'Failed to send local position: {response.status_code}'
-                )
+                self.log_error_response(response, 'local_position', self.api_endpoints['local_position'])
         except requests.exceptions.RequestException as e:
             self.get_logger().warn(f'Error sending local position: {str(e)}')
+            if hasattr(e, 'response') and e.response is not None:
+                self.log_error_response(e.response, 'local_position', self.api_endpoints['local_position'])
 
     def send_gps_raw(self, data):
         """Send raw GPS data to API."""
@@ -430,11 +574,11 @@ class DeepGISTelemetryPublisher(Node):
                 timeout=5.0
             )
             if response.status_code not in [200, 201]:
-                self.get_logger().warn(
-                    f'Failed to send GPS raw: {response.status_code}'
-                )
+                self.log_error_response(response, 'gps_raw', self.api_endpoints['gps_raw'])
         except requests.exceptions.RequestException as e:
             self.get_logger().warn(f'Error sending GPS raw: {str(e)}')
+            if hasattr(e, 'response') and e.response is not None:
+                self.log_error_response(e.response, 'gps_raw', self.api_endpoints['gps_raw'])
 
     def send_gps_estimated(self, data):
         """Send estimated GPS data to API."""
@@ -445,33 +589,37 @@ class DeepGISTelemetryPublisher(Node):
                 timeout=5.0
             )
             if response.status_code not in [200, 201]:
-                self.get_logger().warn(
-                    f'Failed to send GPS estimated: {response.status_code}'
-                )
+                self.log_error_response(response, 'gps_estimated', self.api_endpoints['gps_estimated'])
         except requests.exceptions.RequestException as e:
             self.get_logger().warn(f'Error sending GPS estimated: {str(e)}')
+            if hasattr(e, 'response') and e.response is not None:
+                self.log_error_response(e.response, 'gps_estimated', self.api_endpoints['gps_estimated'])
 
     def send_batch(self):
         """Send accumulated data in batch (API compliant format)."""
+        # Quick check and data extraction with minimal lock time
         with self.buffer_lock:
             if not (self.local_position_buffer or self.gps_raw_buffer or self.gps_estimated_buffer):
                 return
 
-            # Use API-compliant field names
+            # Move data out of buffers (more efficient than copy for large lists)
             batch_data = {
-                'local_position_odom': self.local_position_buffer.copy(),
-                'gps_fix_raw': self.gps_raw_buffer.copy(),
-                'gps_fix_estimated': self.gps_estimated_buffer.copy()
+                'local_position_odom': self.local_position_buffer,
+                'gps_fix_raw': self.gps_raw_buffer,
+                'gps_fix_estimated': self.gps_estimated_buffer
             }
 
             count_odom = len(self.local_position_buffer)
             count_raw = len(self.gps_raw_buffer)
             count_est = len(self.gps_estimated_buffer)
 
-            # Clear buffers
-            self.local_position_buffer.clear()
-            self.gps_raw_buffer.clear()
-            self.gps_estimated_buffer.clear()
+            # Clear buffers (create new lists instead of clearing to avoid reference issues)
+            self.local_position_buffer = []
+            self.gps_raw_buffer = []
+            self.gps_estimated_buffer = []
+            
+            # Update flush time
+            self.last_batch_flush_time = time.time()
 
         try:
             response = self.http_session.post(
@@ -486,11 +634,11 @@ class DeepGISTelemetryPublisher(Node):
                     f'{count_est} GPS est ({total_items} total)'
                 )
             else:
-                self.get_logger().warn(
-                    f'Failed to send batch: {response.status_code} - {response.text}'
-                )
+                self.log_error_response(response, 'batch', self.api_endpoints['batch'])
         except requests.exceptions.RequestException as e:
             self.get_logger().error(f'Error sending batch: {str(e)}')
+            if hasattr(e, 'response') and e.response is not None:
+                self.log_error_response(e.response, 'batch', self.api_endpoints['batch'])
 
     def destroy_node(self):
         """Cleanup before node shutdown."""
@@ -499,9 +647,15 @@ class DeepGISTelemetryPublisher(Node):
             self.send_batch()
         
         # Close HTTP session
-        self.http_session.close()
+        try:
+            self.http_session.close()
+        except Exception:
+            pass  # Ignore errors during shutdown
         
-        super().destroy_node()
+        try:
+            super().destroy_node()
+        except Exception:
+            pass  # Ignore errors if node already destroyed
 
 
 def main(args=None):
