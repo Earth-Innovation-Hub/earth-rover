@@ -9,7 +9,7 @@ For continuous ecological monitoring of urban or suburban environments, it is ne
 ![image](https://github.com/user-attachments/assets/07d53db6-031a-4a68-9338-75e33c5428a5)
 
 
-This prorotype is a 26” Schwinn adult tricycle frame, augmented with a front electric motor for traction, a steering system, rear aerodynamic solar panel assembly,  a rear mast for avionics, sensing, and compute payloads. The vehicle’s large (26”) wheels and low weight (65 kg), enables stability and long range (up to 50 km a day with solar), and is capable of GPS-enabled vision based autonomous navigation on paved or unpaved paths. The vehicle can execute repeatable paths that are either learned by the system from experimental drives by a rider, or through specified or optimized mission plans. At a base cost of about USD 3000, our system is affordable, and can be assembled from either COTS components, or from custom hardware. Additionally, our system can be operated manually like a standard electric tricycle, providing additional modalities for expert data collection and imitation learning. 
+This prorotype is a 26" Schwinn adult tricycle frame, augmented with a front electric motor for traction, a steering system, rear aerodynamic solar panel assembly,  a rear mast for avionics, sensing, and compute payloads. The vehicle's large (26") wheels and low weight (65 kg), enables stability and long range (up to 50 km a day with solar), and is capable of GPS-enabled vision based autonomous navigation on paved or unpaved paths. The vehicle can execute repeatable paths that are either learned by the system from experimental drives by a rider, or through specified or optimized mission plans. At a base cost of about USD 3000, our system is affordable, and can be assembled from either COTS components, or from custom hardware. Additionally, our system can be operated manually like a standard electric tricycle, providing additional modalities for expert data collection and imitation learning. 
 
 ## System Description 
 Mass
@@ -52,7 +52,7 @@ WiFi hotspot on onboard compute
 2.4GHz DSMX RC transmitter to Pixhawk 
 
 ![image](https://github.com/user-attachments/assets/836d27e1-4022-4540-929a-9dad2fe70606)
-![image](https://github.com/user-attachments/assets/10b7eb70-dca8-4777-9c3e-f0e3dd4d7faf)
+![image](https://github.com/user-attachments/assets/10b7eb70-dca8-4577-9c3e-f0e3dd4fe70606)
 
 ## Mobility system:  
 The vehicle has a 1 kW front brushless 3 phase electric motor that operates with a 48V Lithium Iron Phosphate (LiFePO4) battery. The trike can be steered manually or through a slip-drive clutch actuator system. 
@@ -62,19 +62,19 @@ When controlled manually, a throttle with a hall-effect sensor enables commandee
 
 When steered by the Pixhawk flight controller, QGroundControl ground control station (GCS) software is used, and the traction system is switched to a 300W controller for safety, providing lower power and speeds. 
 
-Payload mast: A load bearing mount-point at a height of 120cm from ground, is built using a spring assembly consisting of low-cost COTS carbon fiber and aluminum arrow bodies, and the trike’s metal rear basket, that yields to motions in both body frame x, y, and z axes. This assembly helps decouple the mounted imaging and compute system from bumps and jerks that could interfere with data collection, or in the worst case scenario, can damage aspects of the imaging suite assembly. With the mounting assembly, the trike is able to collect data while traversing at speeds up to 12 m/s. 
+Payload mast: A load bearing mount-point at a height of 120cm from ground, is built using a spring assembly consisting of low-cost COTS carbon fiber and aluminum arrow bodies, and the trike's metal rear basket, that yields to motions in both body frame x, y, and z axes. This assembly helps decouple the mounted imaging and compute system from bumps and jerks that could interfere with data collection, or in the worst case scenario, can damage aspects of the imaging suite assembly. With the mounting assembly, the trike is able to collect data while traversing at speeds up to 12 m/s. 
 
 
 ## Autonomy:  
-The electric tricycle’s avionics package consists of a Pixhawk 2.1 flight controller running a rover airframe on the PX4 autopilot software stack. The vehicle is capable of GPS and IMU based waypoint missions, as a base feature, with additional computer vision capabilities through simultaneous localization and mapping 
+The electric tricycle's avionics package consists of a Pixhawk 2.1 flight controller running a rover airframe on the PX4 autopilot software stack. The vehicle is capable of GPS and IMU based waypoint missions, as a base feature, with additional computer vision capabilities through simultaneous localization and mapping 
 
 Figure 2: QGroundControl GCS used for mission planning and situational awareness during a field trial at ASU campus (Dec 2023). 
-![image](https://github.com/user-attachments/assets/08483f81-e819-4b52-bc0f-bbcd1fadd7ce)
+![image](https://github.com/user-attachments/assets/08483e81-e819-4b52-bc0f-bbcd1fadd7ce)
 
 
 (SLAM), ORBSLAM3, ROS, PX4, ROS, Gazebo, PX4 SITL digital twin, 
 
-The system’s onboard computer runs ROS2, with ros nodes for all the cameras, spectrometer, lidar ranger, and MAVROS package for communicating with the Pixhawk for telemetry, and commanding the vehicle. 
+The system's onboard computer runs ROS2, with ros nodes for all the cameras, spectrometer, lidar ranger, and MAVROS package for communicating with the Pixhawk for telemetry, and commanding the vehicle. 
 
 QGC allows GPS mission planning, with all operations possible without internet connectivity, on cached maps
 
@@ -91,13 +91,12 @@ Geological and Ecological Mapping for Digital Twins
 
 
 
-
 Point cloud uncertainty (blue=low)
 
 Figure 4: Mapping of a rocky feature set by the vehicle, by orbiting and collecting imagery with its PointGrey Grasshopper3 camera with narrow angle lens.  
 
 ## Natural Language Interaction and lifelong learning
-We anticipate interaction with a human user through command line interface, verbal interaction, and gestures. The command set may include navigational instructions such as “Follow me” which is integrated with the trike autonomy stack for visual tracking of a human leader. For mission planning however, the bulk of the commanding architecture may be natural language with generative AI in the backbone for tokenizing the instructions and generating optimal exploration plans.  
+We anticipate interaction with a human user through command line interface, verbal interaction, and gestures. The command set may include navigational instructions such as "Follow me" which is integrated with the trike autonomy stack for visual tracking of a human leader. For mission planning however, the bulk of the commanding architecture may be natural language with generative AI in the backbone for tokenizing the instructions and generating optimal exploration plans.  
 
 Example natural language prompts: 
 Map all trees 
@@ -134,3 +133,198 @@ https://youtu.be/PZGcjdSuags?si=71zC8FyeZaOeyud6
 Data capture with the vehicle with a Prophesee metavision event camera (Alphacore) in the imaging suite, providing high dynamic range. 
 https://www.youtube.com/watch?v=2V3Mc3UAJss
 
+---
+
+# deepgis-vehicles ROS2 Package
+
+ROS2 package for connecting with Pixhawk PX4 autopilot using MAVROS2.
+
+## Overview
+
+This package provides a ROS2 interface to communicate with Pixhawk PX4 flight controllers via MAVROS2. It includes:
+
+- **vehicle_interface_node**: A C++ node that interfaces with MAVROS2 to:
+  - Subscribe to vehicle state, position, and sensor data
+  - Publish commands (position setpoints, velocity commands)
+  - Provide services for arming/disarming and mode changes
+  - Publish processed vehicle data as standard ROS2 topics
+
+## Dependencies
+
+- ROS2 (Humble/Iron/Rolling)
+- MAVROS2 (`mavros`, `mavros_msgs`, `mavros_extras`)
+- Standard ROS2 packages: `rclcpp`, `geometry_msgs`, `sensor_msgs`, `nav_msgs`, `std_msgs`
+- TF2 for coordinate transformations
+
+## Installation
+
+### Install MAVROS2
+
+Before building this package, you need to install MAVROS2:
+
+**For ROS2 Humble (Ubuntu 22.04):**
+```bash
+sudo apt update
+sudo apt install ros-humble-mavros ros-humble-mavros-extras ros-humble-mavros-msgs
+```
+
+**For ROS2 Iron (Ubuntu 22.04):**
+```bash
+sudo apt update
+sudo apt install ros-iron-mavros ros-iron-mavros-extras ros-iron-mavros-msgs
+```
+
+**For ROS2 Rolling (Ubuntu 22.04/24.04):**
+```bash
+sudo apt update
+sudo apt install ros-rolling-mavros ros-rolling-mavros-extras ros-rolling-mavros-msgs
+```
+
+**Note:** If MAVROS2 packages are not available via apt, you may need to build them from source. See the [MAVROS2 GitHub repository](https://github.com/mavlink/mavros) for instructions.
+
+### Install GeographicLib datasets (required for MAVROS2)
+
+MAVROS2 requires GeographicLib datasets for coordinate transformations:
+
+```bash
+sudo geographiclib-get-geoids egm96-5
+```
+
+## Building
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select deepgis-vehicles
+source install/setup.bash
+```
+
+## Usage
+
+### Launch with PX4 SITL (Software In The Loop)
+
+For testing with PX4 SITL:
+
+```bash
+ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+    fcu_url:="udp://:14540@127.0.0.1:14557"
+```
+
+### Launch with Physical Pixhawk
+
+**Recommended: Using serial-by-id (stable device identification)**
+
+First, find your Pixhawk device:
+```bash
+ls -la /dev/serial/by-id/
+```
+
+Then launch with the serial-by-id path (recommended for stability):
+```bash
+ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+    fcu_url:="/dev/serial/by-id/usb-3D_Robotics_PX4_FMU_v2.x_0-if00:57600"
+```
+
+**Alternative: Using direct device paths**
+
+For a Pixhawk connected via USB:
+```bash
+ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+    fcu_url:="/dev/ttyUSB0:57600"
+```
+
+For a Pixhawk connected via ACM:
+```bash
+ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+    fcu_url:="/dev/ttyACM0:57600"
+```
+
+**Note:** The serial-by-id method (`/dev/serial/by-id/...`) is recommended because it provides a stable path that doesn't change when the device is plugged into different USB ports.
+
+### Launch Parameters
+
+- `fcu_url`: Connection URL to the flight controller
+  - SITL: `udp://:14540@127.0.0.1:14557`
+  - Serial-by-id (recommended): `/dev/serial/by-id/usb-3D_Robotics_PX4_FMU_v2.x_0-if00:57600`
+  - USB: `/dev/ttyUSB0:57600`
+  - ACM: `/dev/ttyACM0:57600`
+  - TCP: `tcp://127.0.0.1:5760`
+  
+  **Baud rates:** Common baud rates for Pixhawk are 57600 (default), 921600 (high-speed), or 115200
+- `gcs_url`: Ground Control Station URL (default: `udp://@127.0.0.1:14550`)
+- `tgt_system`: Target system ID (default: `1`)
+- `tgt_component`: Target component ID (default: `1`)
+- `mavros_namespace`: MAVROS namespace (default: `/mavros`)
+
+## Topics
+
+### Subscribed (from MAVROS2)
+
+- `/mavros/state` - Vehicle state (armed, mode, connected)
+- `/mavros/local_position/pose` - Local position estimate
+- `/mavros/global_position/global` - Global GPS position
+
+### Published (to MAVROS2)
+
+- `/mavros/setpoint_position/local` - Position setpoint commands
+- `/mavros/setpoint_velocity/cmd_vel` - Velocity commands
+- `/mavros/setpoint_raw/local` - Raw position target
+
+### Published (processed data)
+
+- `vehicle/odometry` - Vehicle odometry (nav_msgs/Odometry)
+- `vehicle/connected` - Connection status (std_msgs/Bool)
+
+## Services
+
+The node provides access to MAVROS2 services:
+
+- `/mavros/cmd/arming` - Arm/disarm the vehicle
+- `/mavros/set_mode` - Change flight mode
+
+## Example: Arming and Taking Off
+
+```bash
+# In one terminal, launch the interface
+ros2 launch deepgis-vehicles vehicle_interface.launch.py
+
+# In another terminal, arm the vehicle
+ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"
+
+# Set to OFFBOARD mode
+ros2 service call /mavros/set_mode mavros_msgs/srv/SetMode \
+    "{custom_mode: 'OFFBOARD'}"
+
+# Publish position setpoint (example: 5m altitude)
+ros2 topic pub /mavros/setpoint_position/local geometry_msgs/msg/PoseStamped \
+    "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: 'map'}, \
+     pose: {position: {x: 0.0, y: 0.0, z: 5.0}, \
+            orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}"
+```
+
+## Monitoring
+
+Check vehicle connection status:
+
+```bash
+ros2 topic echo /mavros/state
+ros2 topic echo /vehicle/connected
+ros2 topic echo /vehicle/odometry
+```
+
+## Configuration
+
+Edit `config/mavros_config.yaml` to customize MAVROS2 parameters.
+
+## Notes
+
+- Ensure MAVROS2 is installed: `sudo apt install ros-<distro>-mavros ros-<distro>-mavros-extras`
+- For USB connections, you may need to add your user to the `dialout` group:
+  ```bash
+  sudo usermod -a -G dialout $USER
+  ```
+- The node automatically handles connection status and logs important state changes
+- Position setpoints should be published at a minimum rate (typically 10-30 Hz) for OFFBOARD mode
+
+## License
+
+BSD-3-Clause

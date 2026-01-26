@@ -1,10 +1,14 @@
+# ROS2 build artifacts
+build/
+install/
+log/
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
 develop-eggs/
 dist/
 downloads/
@@ -44,7 +48,10 @@ db.sqlite3-journal
 *.swp
 *.swo
 *~
+
+# OS
 .DS_Store
+Thumbs.db
 
 # Cache
 .cache/
@@ -59,4 +66,3 @@ replit_zip_error_log.txt
 
 # NCS environment
 ncs_env/
-

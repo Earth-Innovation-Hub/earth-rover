@@ -1,0 +1,33 @@
+# MAVROS2 Configuration for Pixhawk PX4
+# This file can be used to configure MAVROS2 parameters
+
+mavros:
+  ros__parameters:
+    # Connection settings
+    fcu_url: "udp://:14540@127.0.0.1:14557"  # For SITL
+    # fcu_url: "/dev/ttyUSB0:57600"  # For USB connection
+    # fcu_url: "/dev/ttyACM0:57600"  # For ACM connection
+    # fcu_url: "tcp://127.0.0.1:5760"  # For TCP connection
+    
+    gcs_url: "udp://@127.0.0.1:14550"
+    
+    # System IDs
+    target_system_id: 1
+    target_component_id: 1
+    system_id: 1
+    component_id: 240
+    
+    # Protocol version
+    fcu_protocol: "v2.0"
+    
+    # Connection settings
+    connection_timeout: 10.0
+    startup_px4_usb_quirk: true
+    
+    # Diagnostic settings
+    diagnostic_period: 1.0
+    
+    # Plugin configuration
+    plugin_blacklist: []  # Empty = all plugins enabled
+    plugin_whitelist: []  # Empty = no whitelist
+

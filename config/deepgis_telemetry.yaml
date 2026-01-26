@@ -1,0 +1,29 @@
+# DeepGIS Telemetry Publisher Configuration
+# API-compliant configuration for DeepGIS telemetry system
+
+deepgis_telemetry_publisher:
+  ros__parameters:
+    # DeepGIS API Configuration
+    deepgis_api_url: "https://deepgis.org"
+    api_key: ""  # Optional: Set your API key here if required
+    
+    # Session Configuration (DeepGIS API compliant)
+    asset_name: "MAVROS Vehicle"
+    session_id: ""  # Leave empty for auto-generated (mavros_YYYYMMDD_HHMMSS)
+    project_title: "MAVROS Data Collection"
+    flight_mode: "AUTO"  # MANUAL, AUTO, GUIDED, LOITER, RTL, etc.
+    mission_type: "Telemetry Collection"
+    notes: "Automated telemetry collection from MAVROS"
+    
+    # MAVROS Configuration
+    mavros_namespace: "/mavros"
+    
+    # Telemetry Publishing Settings
+    publish_rate: 1.0  # Hz - how often to check for new data and publish/batch
+    
+    # Batch Mode Settings
+    enable_batch_mode: true  # true = batch uploads, false = real-time streaming
+    batch_size: 10  # Number of samples to accumulate before sending batch
+    
+    # Note: Batch mode is more efficient for bandwidth and reduces API calls.
+    # Real-time mode provides lower latency but increases network traffic.
