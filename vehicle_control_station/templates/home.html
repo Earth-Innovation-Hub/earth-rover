@@ -49,7 +49,7 @@
         
         .header-controls {
             display: grid;
-            grid-template-columns: 200px 1fr 200px;
+            grid-template-columns: 200px 200px 1fr 200px;
             gap: 20px;
             align-items: center;
             margin-top: 15px;
@@ -102,35 +102,40 @@
         }
         
         .disk-space-widget {
-            display: inline-block;
+            display: inline-flex;
             margin-top: 8px;
             padding: 10px 16px;
             border-radius: 8px;
             background: #1a1f2e;
-            min-width: 300px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            gap: 15px;
+            align-items: center;
         }
         
         .disk-space-title {
             font-size: 0.75em;
             color: #888;
-            margin-bottom: 6px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
         }
         
         .disk-space-bar-container {
             background: #0a0e1a;
             border-radius: 10px;
-            height: 20px;
+            width: 30px;
+            height: 150px;
             overflow: hidden;
             position: relative;
             border: 1px solid #2a2a3e;
+            display: flex;
+            flex-direction: column-reverse;
         }
         
         .disk-space-bar {
-            height: 100%;
-            transition: width 0.3s ease, background-color 0.3s ease;
+            width: 100%;
+            transition: height 0.3s ease, background-color 0.3s ease;
             border-radius: 10px;
             position: relative;
             overflow: hidden;
@@ -143,7 +148,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: linear-gradient(90deg, 
+            background: linear-gradient(180deg, 
                 rgba(255,255,255,0.1) 0%, 
                 rgba(255,255,255,0.2) 50%, 
                 rgba(255,255,255,0.1) 100%);
@@ -169,18 +174,26 @@
         
         .disk-space-info {
             display: flex;
-            justify-content: space-between;
-            margin-top: 6px;
-            font-size: 0.8em;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 0.75em;
             color: #b0b0b0;
+        }
+        
+        .disk-space-info > div {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
         }
         
         .disk-space-label {
             font-weight: 600;
+            font-size: 0.85em;
         }
         
         .disk-space-value {
             font-family: 'Courier New', monospace;
+            color: #667eea;
         }
         
         .recording-controls {
@@ -540,7 +553,7 @@
             
             <!-- Header Controls with Avionics on Sides -->
             <div class="header-controls">
-                <!-- Left: Attitude Indicator -->
+                <!-- Left 1: Attitude Indicator -->
                 <div class="header-instrument">
                     <div class="instrument">
                         <canvas id="attitude-indicator" width="300" height="300"></canvas>
@@ -549,6 +562,17 @@
                     <div class="instrument-value">
                         Pitch: <span id="pitch-value">0.0°</span><br>
                         Roll: <span id="roll-value">0.0°</span>
+                    </div>
+                </div>
+                
+                <!-- Left 2: Altitude Indicator -->
+                <div class="header-instrument">
+                    <div class="instrument">
+                        <canvas id="altitude-indicator" width="300" height="300"></canvas>
+                    </div>
+                    <div class="instrument-label">Altitude Indicator</div>
+                    <div class="instrument-value">
+                        <span id="altitude-value">0.0 m</span>
                     </div>
                 </div>
                 
@@ -723,11 +747,14 @@ var attitudeCanvas = document.getElementById('attitude-indicator');
 var attitudeCtx = attitudeCanvas.getContext('2d');
 var headingCanvas = document.getElementById('heading-indicator');
 var headingCtx = headingCanvas.getContext('2d');
+var altitudeCanvas = document.getElementById('altitude-indicator');
+var altitudeCtx = altitudeCanvas.getContext('2d');
 
 // Current attitude values
 var currentPitch = 0;  // degrees
 var currentRoll = 0;   // degrees
 var currentHeading = 0; // degrees (0-360)
+var currentAltitude = 0; // meters
 
 // Subscribe to IMU/Attitude topic
 var imuListener = new ROSLIB.Topic({
@@ -1022,10 +1049,159 @@ function drawHeadingIndicator() {
     ctx.stroke();
 }
 
+// Subscribe to Altitude topic
+var altitudeListener = new ROSLIB.Topic({
+    ros: ros,
+    name: '/mavros/global_position/rel_alt',  // Relative altitude
+    messageType: 'std_msgs/Float64'
+});
+
+altitudeListener.subscribe(function(message) {
+    currentAltitude = message.data;
+    document.getElementById('altitude-value').textContent = currentAltitude.toFixed(1) + ' m';
+});
+
+// Draw Altitude Indicator
+function drawAltitudeIndicator() {
+    var canvas = altitudeCanvas;
+    var ctx = altitudeCtx;
+    var width = canvas.width;
+    var height = canvas.height;
+    var centerX = width / 2;
+    var centerY = height / 2;
+    var radius = width / 2 - 20;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Save context
+    ctx.save();
+    
+    // Draw outer circle
+    ctx.strokeStyle = '#888888';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+    ctx.stroke();
+    
+    // Draw background
+    var gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+    gradient.addColorStop(0, '#2a2a2a');
+    gradient.addColorStop(1, '#1a1a1a');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius - 3, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Draw altitude tape on the right side
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    
+    // Altitude scale parameters
+    var tapeWidth = 70;
+    var tapeHeight = radius * 1.5;
+    var pixelsPerMeter = 3;  // Scale factor
+    var majorTickInterval = 50;  // Major ticks every 50m
+    var minorTickInterval = 10;  // Minor ticks every 10m
+    
+    // Create clipping region for tape
+    ctx.beginPath();
+    ctx.rect(radius - tapeWidth - 10, -tapeHeight / 2, tapeWidth, tapeHeight);
+    ctx.clip();
+    
+    // Draw altitude tape background
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(radius - tapeWidth - 10, -tapeHeight / 2, tapeWidth, tapeHeight);
+    
+    // Calculate visible altitude range
+    var altitudeOffset = currentAltitude * pixelsPerMeter;
+    var minAltitude = Math.floor((currentAltitude - tapeHeight / 2 / pixelsPerMeter) / minorTickInterval) * minorTickInterval;
+    var maxAltitude = Math.ceil((currentAltitude + tapeHeight / 2 / pixelsPerMeter) / minorTickInterval) * minorTickInterval;
+    
+    // Draw altitude markings
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    
+    for (var alt = minAltitude; alt <= maxAltitude; alt += minorTickInterval) {
+        var y = -altitudeOffset + alt * pixelsPerMeter;
+        var isMajorTick = (alt % majorTickInterval === 0);
+        
+        // Draw tick mark
+        ctx.strokeStyle = isMajorTick ? '#ffffff' : '#888888';
+        ctx.lineWidth = isMajorTick ? 2 : 1;
+        ctx.beginPath();
+        var tickLength = isMajorTick ? 15 : 8;
+        ctx.moveTo(radius - tapeWidth - 10, y);
+        ctx.lineTo(radius - tapeWidth - 10 + tickLength, y);
+        ctx.stroke();
+        
+        // Draw altitude number for major ticks
+        if (isMajorTick) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(alt.toString(), radius - tapeWidth - 10 + tapeWidth - 5, y);
+        }
+    }
+    
+    ctx.restore();
+    
+    // Draw current altitude pointer (triangle)
+    ctx.fillStyle = '#ffff00';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(radius - tapeWidth - 10, 0);
+    ctx.lineTo(radius - tapeWidth - 25, -12);
+    ctx.lineTo(radius - tapeWidth - 25, 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // Draw current altitude display box
+    ctx.fillStyle = '#000000';
+    ctx.strokeStyle = '#ffff00';
+    ctx.lineWidth = 2;
+    ctx.fillRect(centerX - 60, centerY - 20, 120, 40);
+    ctx.strokeRect(centerX - 60, centerY - 20, 120, 40);
+    
+    // Draw current altitude text
+    ctx.fillStyle = '#00ff00';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(currentAltitude.toFixed(0) + ' m', centerX, centerY);
+    
+    // Draw vertical speed indicator on left side
+    ctx.strokeStyle = '#888888';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-radius + 20, -tapeHeight / 2);
+    ctx.lineTo(-radius + 20, tapeHeight / 2);
+    ctx.stroke();
+    
+    // Draw zero reference line
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-radius + 15, 0);
+    ctx.lineTo(-radius + 25, 0);
+    ctx.stroke();
+    
+    // Draw unit labels
+    ctx.fillStyle = '#888888';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('ALT', 0, radius - 10);
+    ctx.fillText('(m)', 0, radius + 5);
+    
+    ctx.restore();
+}
+
 // Animation loop for instruments
 function updateInstruments() {
     drawAttitudeIndicator();
     drawHeadingIndicator();
+    drawAltitudeIndicator();
     requestAnimationFrame(updateInstruments);
 }
 
@@ -1588,9 +1764,9 @@ odometryListener.subscribe(function(message) {
                         document.getElementById('disk-free').textContent = data.free_gb + ' GB';
                         document.getElementById('disk-total').textContent = data.total_gb + ' GB';
                         
-                        // Update progress bar
+                        // Update progress bar (vertical)
                         var diskBar = document.getElementById('disk-space-bar');
-                        diskBar.style.width = data.used_percent + '%';
+                        diskBar.style.height = data.used_percent + '%';
                         
                         // Update color based on usage
                         diskBar.className = 'disk-space-bar';
