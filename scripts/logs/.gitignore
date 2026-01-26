@@ -1,0 +1,9 @@
+# Ignore all log files
+*.log
+
+# Ignore PID files
+*.pids
+
+# But keep this directory in git
+!.gitignore
+

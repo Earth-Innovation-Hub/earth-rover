@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Earth Rover ROS 2 Stack
+Comment=Start Earth Rover ROS 2 trike stack at graphical login
+Exec=/bin/bash -c 'export ROS_STARTUP_DELAY=15; export EARTH_ROVER_HOME=/home/jdas/earth-rover; /home/jdas/earth-rover/scripts/startup/ros_startup.sh trike'
+Terminal=false
+X-GNOME-Autostart-enabled=true
+Icon=applications-science
+Categories=Development;Science;
+

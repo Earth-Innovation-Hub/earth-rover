@@ -1,0 +1,21 @@
+[Unit]
+Description=Earth Rover ROS 2 Trike Stack
+After=graphical-session.target network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+# Wait for USB/devices (Pixhawk, cameras) to initialize
+Environment=ROS_STARTUP_DELAY=15
+Environment=ROS_DISTRO=humble
+Environment=EARTH_ROVER_HOME=/home/jdas/earth-rover
+ExecStart=/home/jdas/earth-rover/scripts/startup/ros_startup.sh trike
+WorkingDirectory=/home/jdas/earth-rover
+# Do not kill background nohup children when the service stops
+KillMode=process
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+
