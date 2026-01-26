@@ -338,7 +338,7 @@
         }
         
         #map {
-            height: 400px;
+            height: 300px;
             width: 100%;
             border-radius: 4px;
             border: 1px solid #2a2a3e;
@@ -414,6 +414,61 @@
             margin-top: 5px;
             font-size: 0.8em;
             color: #a0a0a0;
+        }
+        
+        /* Avionics Instruments Styles */
+        .avionics-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .instruments-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 10px;
+        }
+        
+        .instrument {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+            max-width: 250px;
+            margin: 0 auto;
+        }
+        
+        .instrument canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: radial-gradient(circle, #1a1a1a 0%, #0a0a0a 100%);
+            box-shadow: 
+                inset 0 0 20px rgba(0,0,0,0.8),
+                0 4px 15px rgba(0,0,0,0.5);
+        }
+        
+        .instrument-label {
+            text-align: center;
+            margin-top: 8px;
+            font-size: 0.9em;
+            color: #b0b0b0;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .instrument-value {
+            text-align: center;
+            margin-top: 4px;
+            font-size: 0.85em;
+            color: #667eea;
+            font-family: 'Courier New', monospace;
+        }
+        
+        #map-container {
+            width: 100%;
+            margin-bottom: 10px;
         }
         
         @media (max-width: 1200px) {
@@ -498,9 +553,36 @@
                     <h2>Right Stereo Camera</h2>
                     <img src="http://192.168.0.35:8080/stream?topic=/stereo/right/image_raw" alt="Right Stereo Camera Image">
                 </div>
-                <div class="card camera-card">
-                    <h2>Fisheye Camera</h2>
-                    <img src="http://192.168.0.35:8080/stream?topic=/camera/fisheye1/image_raw" alt="Fisheye Camera Image">
+                <div class="card">
+                    <h2>Navigation & Avionics</h2>
+                    <div class="avionics-panel">
+                        <!-- GPS Map at the top -->
+                        <div id="map-container">
+                            <div id="map"></div>
+                        </div>
+                        
+                        <!-- Avionics Instruments -->
+                        <div class="instruments-container">
+                            <div>
+                                <div class="instrument">
+                                    <canvas id="attitude-indicator" width="300" height="300"></canvas>
+                                </div>
+                                <div class="instrument-label">Attitude Indicator</div>
+                                <div class="instrument-value">
+                                    Pitch: <span id="pitch-value">0.0°</span> | Roll: <span id="roll-value">0.0°</span>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="instrument">
+                                    <canvas id="heading-indicator" width="300" height="300"></canvas>
+                                </div>
+                                <div class="instrument-label">Heading Indicator</div>
+                                <div class="instrument-value">
+                                    <span id="heading-value">0.0°</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -517,9 +599,9 @@
                     <h2>Visual Odometry Data Plot</h2>
                     <div id="odometry-plotting-area" class="plotting-area"></div>
                 </div>
-                <div class="card">
-                    <h2>GPS Path</h2>
-                    <div id="map"></div>
+                <div class="card camera-card">
+                    <h2>Fisheye Camera</h2>
+                    <img src="http://192.168.0.35:8080/stream?topic=/camera/fisheye1/image_raw" alt="Fisheye Camera Image">
                 </div>
                 <div class="card">
                     <h2>LASER Ranger - Value: <span id="laser-value" class="laser-value">Loading...</span></h2>
@@ -594,6 +676,325 @@ gpsListener.subscribe(function(message) {
     polyline.setLatLngs(pathCoordinates);
     map.setView(newPoint, 23); // Adjust this number for zoom level
 });
+
+// ============================================
+// AVIONICS INSTRUMENTS
+// ============================================
+
+// Get canvas contexts
+var attitudeCanvas = document.getElementById('attitude-indicator');
+var attitudeCtx = attitudeCanvas.getContext('2d');
+var headingCanvas = document.getElementById('heading-indicator');
+var headingCtx = headingCanvas.getContext('2d');
+
+// Current attitude values
+var currentPitch = 0;  // degrees
+var currentRoll = 0;   // degrees
+var currentHeading = 0; // degrees (0-360)
+
+// Subscribe to IMU/Attitude topic
+var imuListener = new ROSLIB.Topic({
+    ros: ros,
+    name: '/mavros/imu/data',  // or '/imu/data' depending on your setup
+    messageType: 'sensor_msgs/Imu'
+});
+
+imuListener.subscribe(function(message) {
+    // Convert quaternion to Euler angles
+    var q = message.orientation;
+    
+    // Roll (x-axis rotation)
+    var sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
+    var cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
+    currentRoll = Math.atan2(sinr_cosp, cosr_cosp) * (180 / Math.PI);
+    
+    // Pitch (y-axis rotation)
+    var sinp = 2 * (q.w * q.y - q.z * q.x);
+    if (Math.abs(sinp) >= 1)
+        currentPitch = Math.sign(sinp) * 90;
+    else
+        currentPitch = Math.asin(sinp) * (180 / Math.PI);
+    
+    // Yaw (z-axis rotation) - heading
+    var siny_cosp = 2 * (q.w * q.z + q.x * q.y);
+    var cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
+    var yaw = Math.atan2(siny_cosp, cosy_cosp) * (180 / Math.PI);
+    
+    // Convert to 0-360 range
+    currentHeading = (yaw + 360) % 360;
+    
+    // Update displays
+    document.getElementById('pitch-value').textContent = currentPitch.toFixed(1) + '°';
+    document.getElementById('roll-value').textContent = currentRoll.toFixed(1) + '°';
+    document.getElementById('heading-value').textContent = currentHeading.toFixed(1) + '°';
+});
+
+// Draw Attitude Indicator
+function drawAttitudeIndicator() {
+    var canvas = attitudeCanvas;
+    var ctx = attitudeCtx;
+    var width = canvas.width;
+    var height = canvas.height;
+    var centerX = width / 2;
+    var centerY = height / 2;
+    var radius = width / 2 - 20;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Save context
+    ctx.save();
+    
+    // Create circular clipping region
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+    ctx.clip();
+    
+    // Rotate for roll
+    ctx.translate(centerX, centerY);
+    ctx.rotate(-currentRoll * Math.PI / 180);
+    ctx.translate(-centerX, -centerY);
+    
+    // Draw sky (upper half)
+    var skyGradient = ctx.createLinearGradient(0, 0, 0, centerY);
+    skyGradient.addColorStop(0, '#1e90ff');
+    skyGradient.addColorStop(1, '#87ceeb');
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, width, centerY + currentPitch * 3);
+    
+    // Draw ground (lower half)
+    var groundGradient = ctx.createLinearGradient(0, centerY, 0, height);
+    groundGradient.addColorStop(0, '#8b4513');
+    groundGradient.addColorStop(1, '#654321');
+    ctx.fillStyle = groundGradient;
+    ctx.fillRect(0, centerY + currentPitch * 3, width, height);
+    
+    // Draw horizon line
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, centerY + currentPitch * 3);
+    ctx.lineTo(width, centerY + currentPitch * 3);
+    ctx.stroke();
+    
+    // Draw pitch ladder
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.font = '14px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'right';
+    
+    for (var i = -90; i <= 90; i += 10) {
+        if (i === 0) continue;
+        var y = centerY + (currentPitch - i) * 3;
+        var lineWidth = (i % 30 === 0) ? 60 : 40;
+        
+        ctx.beginPath();
+        ctx.moveTo(centerX - lineWidth, y);
+        ctx.lineTo(centerX + lineWidth, y);
+        ctx.stroke();
+        
+        if (i % 30 === 0) {
+            ctx.fillText(i.toString(), centerX - lineWidth - 5, y + 5);
+            ctx.textAlign = 'left';
+            ctx.fillText(i.toString(), centerX + lineWidth + 5, y + 5);
+            ctx.textAlign = 'right';
+        }
+    }
+    
+    // Restore context
+    ctx.restore();
+    
+    // Draw aircraft symbol (fixed in center)
+    ctx.strokeStyle = '#ffff00';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    
+    // Center dot
+    ctx.fillStyle = '#ffff00';
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 5, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Wings
+    ctx.beginPath();
+    ctx.moveTo(centerX - 70, centerY);
+    ctx.lineTo(centerX - 20, centerY);
+    ctx.moveTo(centerX + 70, centerY);
+    ctx.lineTo(centerX + 20, centerY);
+    ctx.stroke();
+    
+    // Draw outer ring and markings
+    ctx.strokeStyle = '#888888';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+    ctx.stroke();
+    
+    // Draw roll indicators
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.strokeStyle = '#ffffff';
+    ctx.fillStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    
+    var rollMarks = [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60];
+    for (var i = 0; i < rollMarks.length; i++) {
+        var angle = rollMarks[i] * Math.PI / 180;
+        var markLength = (rollMarks[i] % 30 === 0) ? 15 : 10;
+        
+        ctx.beginPath();
+        ctx.moveTo(0, -radius);
+        ctx.lineTo(0, -radius + markLength);
+        ctx.stroke();
+        
+        ctx.rotate(angle);
+        ctx.rotate(-angle);
+        
+        if (i < rollMarks.length - 1) {
+            ctx.rotate((rollMarks[i + 1] - rollMarks[i]) * Math.PI / 180);
+        }
+    }
+    
+    // Draw roll pointer
+    ctx.rotate(-currentRoll * Math.PI / 180);
+    ctx.fillStyle = '#ffff00';
+    ctx.beginPath();
+    ctx.moveTo(0, -radius + 5);
+    ctx.lineTo(-8, -radius + 20);
+    ctx.lineTo(8, -radius + 20);
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.restore();
+}
+
+// Draw Heading Indicator
+function drawHeadingIndicator() {
+    var canvas = headingCanvas;
+    var ctx = headingCtx;
+    var width = canvas.width;
+    var height = canvas.height;
+    var centerX = width / 2;
+    var centerY = height / 2;
+    var radius = width / 2 - 20;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Save context
+    ctx.save();
+    
+    // Draw outer circle
+    ctx.strokeStyle = '#888888';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+    ctx.stroke();
+    
+    // Draw compass rose background
+    var gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+    gradient.addColorStop(0, '#2a2a2a');
+    gradient.addColorStop(1, '#1a1a1a');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius - 3, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Rotate for heading
+    ctx.translate(centerX, centerY);
+    ctx.rotate(-currentHeading * Math.PI / 180);
+    
+    // Draw cardinal directions and degree markings
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    var cardinals = ['N', 'E', 'S', 'W'];
+    var cardinalColors = ['#ff0000', '#ffffff', '#ffffff', '#ffffff'];
+    
+    for (var i = 0; i < 360; i += 30) {
+        var angle = i * Math.PI / 180;
+        var x = Math.sin(angle) * (radius - 35);
+        var y = -Math.cos(angle) * (radius - 35);
+        
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(currentHeading * Math.PI / 180);
+        
+        if (i % 90 === 0) {
+            var cardinalIndex = i / 90;
+            ctx.fillStyle = cardinalColors[cardinalIndex];
+            ctx.fillText(cardinals[cardinalIndex], 0, 0);
+        } else {
+            ctx.font = '16px Arial';
+            ctx.fillStyle = '#aaaaaa';
+            ctx.fillText((i / 10).toString(), 0, 0);
+            ctx.font = 'bold 24px Arial';
+        }
+        
+        ctx.restore();
+        
+        // Draw tick marks
+        var tickLength = (i % 90 === 0) ? 20 : (i % 30 === 0) ? 15 : 10;
+        var tickWidth = (i % 90 === 0) ? 3 : 2;
+        
+        ctx.save();
+        ctx.rotate(angle);
+        ctx.strokeStyle = (i % 90 === 0) ? '#ffffff' : '#888888';
+        ctx.lineWidth = tickWidth;
+        ctx.beginPath();
+        ctx.moveTo(0, -radius + 3);
+        ctx.lineTo(0, -radius + 3 + tickLength);
+        ctx.stroke();
+        ctx.restore();
+    }
+    
+    ctx.restore();
+    
+    // Draw heading bug (fixed triangle at top)
+    ctx.fillStyle = '#ffff00';
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - radius + 5);
+    ctx.lineTo(centerX - 10, centerY - radius + 20);
+    ctx.lineTo(centerX + 10, centerY - radius + 20);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Draw center airplane symbol
+    ctx.strokeStyle = '#ffff00';
+    ctx.lineWidth = 3;
+    ctx.fillStyle = '#ffff00';
+    
+    // Airplane body
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - 25);
+    ctx.lineTo(centerX, centerY + 15);
+    ctx.stroke();
+    
+    // Wings
+    ctx.beginPath();
+    ctx.moveTo(centerX - 30, centerY);
+    ctx.lineTo(centerX + 30, centerY);
+    ctx.stroke();
+    
+    // Tail
+    ctx.beginPath();
+    ctx.moveTo(centerX - 10, centerY + 15);
+    ctx.lineTo(centerX + 10, centerY + 15);
+    ctx.stroke();
+}
+
+// Animation loop for instruments
+function updateInstruments() {
+    drawAttitudeIndicator();
+    drawHeadingIndicator();
+    requestAnimationFrame(updateInstruments);
+}
+
+// Start instrument updates
+updateInstruments();
+
         // Update status indicator
         var statusElement = document.getElementById('ros-status');
         
