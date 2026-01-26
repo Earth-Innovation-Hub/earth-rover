@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-     <meta charset="UTF-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROS Image and Data Display</title>
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Vehicle Control Station (VCS)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script type="text/javascript" src="/static/vehicle-control-station/roslib.min.js"></script>
@@ -63,6 +64,202 @@
         .status-disconnected {
             background: #f44336;
             color: white;
+        }
+        
+        .disk-space-widget {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 10px 16px;
+            border-radius: 8px;
+            background: #1a1f2e;
+            min-width: 300px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        
+        .disk-space-title {
+            font-size: 0.75em;
+            color: #888;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .disk-space-bar-container {
+            background: #0a0e1a;
+            border-radius: 10px;
+            height: 20px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid #2a2a3e;
+        }
+        
+        .disk-space-bar {
+            height: 100%;
+            transition: width 0.3s ease, background-color 0.3s ease;
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .disk-space-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, 
+                rgba(255,255,255,0.1) 0%, 
+                rgba(255,255,255,0.2) 50%, 
+                rgba(255,255,255,0.1) 100%);
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        .disk-space-bar.low {
+            background: linear-gradient(90deg, #4caf50 0%, #66bb6a 100%);
+        }
+        
+        .disk-space-bar.medium {
+            background: linear-gradient(90deg, #ff9800 0%, #ffa726 100%);
+        }
+        
+        .disk-space-bar.high {
+            background: linear-gradient(90deg, #f44336 0%, #ef5350 100%);
+        }
+        
+        .disk-space-info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            font-size: 0.8em;
+            color: #b0b0b0;
+        }
+        
+        .disk-space-label {
+            font-weight: 600;
+        }
+        
+        .disk-space-value {
+            font-family: 'Courier New', monospace;
+        }
+        
+        .recording-controls {
+            display: inline-block;
+            margin-top: 8px;
+            margin-left: 16px;
+            padding: 10px 16px;
+            border-radius: 8px;
+            background: #1a1f2e;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        
+        .recording-title {
+            font-size: 0.75em;
+            color: #888;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .recording-buttons {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .recording-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .recording-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        
+        .recording-btn:active {
+            transform: translateY(0);
+        }
+        
+        .recording-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .start-btn {
+            background: linear-gradient(135deg, #f44336 0%, #e53935 100%);
+            color: white;
+        }
+        
+        .start-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #e53935 0%, #d32f2f 100%);
+        }
+        
+        .stop-btn {
+            background: linear-gradient(135deg, #607d8b 0%, #546e7a 100%);
+            color: white;
+        }
+        
+        .stop-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #546e7a 0%, #455a64 100%);
+        }
+        
+        .recording-status {
+            font-size: 0.75em;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .recording-status.idle {
+            background: rgba(96, 125, 139, 0.2);
+            color: #90a4ae;
+        }
+        
+        .recording-status.active {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        
+        .recording-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 4px;
+        }
+        
+        .recording-indicator.recording {
+            background: #f44336;
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 50%, 100% { opacity: 1; }
+            25%, 75% { opacity: 0.3; }
         }
         
         .section {
@@ -248,8 +445,45 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>ROS Image and Data Display</h1>
+            <h1>Vehicle Control Station (VCS)</h1>
             <div id="ros-status" class="status-indicator status-disconnected">Disconnected</div>
+            
+            <!-- Disk Space Widget for Rosbag Logging -->
+            <div class="disk-space-widget">
+                <div class="disk-space-title">🗄️ Rosbag Storage Capacity</div>
+                <div class="disk-space-bar-container">
+                    <div id="disk-space-bar" class="disk-space-bar low" style="width: 0%;"></div>
+                </div>
+                <div class="disk-space-info">
+                    <div>
+                        <span class="disk-space-label">Used:</span>
+                        <span id="disk-used" class="disk-space-value">-- GB</span>
+                    </div>
+                    <div>
+                        <span class="disk-space-label">Free:</span>
+                        <span id="disk-free" class="disk-space-value">-- GB</span>
+                    </div>
+                    <div>
+                        <span class="disk-space-label">Total:</span>
+                        <span id="disk-total" class="disk-space-value">-- GB</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Recording Controls -->
+            <div class="recording-controls">
+                <div class="recording-title">📹 Topic Recording</div>
+                <div class="recording-buttons">
+                    <button id="start-recording-btn" class="recording-btn start-btn" onclick="startRecording()">
+                        <span class="recording-indicator" id="recording-indicator"></span>
+                        Start Recording
+                    </button>
+                    <button id="stop-recording-btn" class="recording-btn stop-btn" onclick="stopRecording()" disabled>
+                        Stop Recording
+                    </button>
+                    <div id="recording-status" class="recording-status idle">Idle</div>
+                </div>
+            </div>
         </div>
         
         <!-- Camera Images Section -->
@@ -904,6 +1138,166 @@ odometryListener.subscribe(function(message) {
             velodyneAutoRotate = !velodyneAutoRotate;
             document.getElementById('auto-rotate-status').textContent = velodyneAutoRotate ? 'On' : 'Off';
         }
+        
+        // Disk Space Widget Update Function
+        function updateDiskSpace() {
+            fetch('/api/disk-space/')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        // Update text values
+                        document.getElementById('disk-used').textContent = data.used_gb + ' GB';
+                        document.getElementById('disk-free').textContent = data.free_gb + ' GB';
+                        document.getElementById('disk-total').textContent = data.total_gb + ' GB';
+                        
+                        // Update progress bar
+                        var diskBar = document.getElementById('disk-space-bar');
+                        diskBar.style.width = data.used_percent + '%';
+                        
+                        // Update color based on usage
+                        diskBar.className = 'disk-space-bar';
+                        if (data.used_percent < 70) {
+                            diskBar.classList.add('low');
+                        } else if (data.used_percent < 90) {
+                            diskBar.classList.add('medium');
+                        } else {
+                            diskBar.classList.add('high');
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching disk space:', error);
+                    document.getElementById('disk-used').textContent = 'Error';
+                    document.getElementById('disk-free').textContent = 'Error';
+                    document.getElementById('disk-total').textContent = 'Error';
+                });
+        }
+        
+        // Update disk space immediately and then every 10 seconds
+        updateDiskSpace();
+        setInterval(updateDiskSpace, 10000);
+        
+        // Recording Control Functions
+        function startRecording() {
+            var startBtn = document.getElementById('start-recording-btn');
+            var stopBtn = document.getElementById('stop-recording-btn');
+            
+            startBtn.disabled = true;
+            
+            fetch('/api/recording/start/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    console.log('Recording started:', data.message);
+                    updateRecordingUI(true);
+                    alert('Recording started!\nOutput: ' + data.output_file);
+                } else {
+                    alert('Error starting recording: ' + data.message);
+                    startBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error starting recording:', error);
+                alert('Failed to start recording: ' + error);
+                startBtn.disabled = false;
+            });
+        }
+        
+        function stopRecording() {
+            var stopBtn = document.getElementById('stop-recording-btn');
+            stopBtn.disabled = true;
+            
+            fetch('/api/recording/stop/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    console.log('Recording stopped:', data.message);
+                    updateRecordingUI(false);
+                    alert('Recording stopped!\nSaved to: ' + data.output_file);
+                } else {
+                    alert('Error stopping recording: ' + data.message);
+                    stopBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error stopping recording:', error);
+                alert('Failed to stop recording: ' + error);
+                stopBtn.disabled = false;
+            });
+        }
+        
+        function updateRecordingStatus() {
+            fetch('/api/recording/status/')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        updateRecordingUI(data.recording);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching recording status:', error);
+                });
+        }
+        
+        function updateRecordingUI(isRecording) {
+            var startBtn = document.getElementById('start-recording-btn');
+            var stopBtn = document.getElementById('stop-recording-btn');
+            var statusElement = document.getElementById('recording-status');
+            var indicator = document.getElementById('recording-indicator');
+            
+            if (isRecording) {
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                statusElement.textContent = 'Recording';
+                statusElement.className = 'recording-status active';
+                indicator.className = 'recording-indicator recording';
+            } else {
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                statusElement.textContent = 'Idle';
+                statusElement.className = 'recording-status idle';
+                indicator.className = 'recording-indicator';
+            }
+        }
+        
+        // Helper function to get CSRF token
+        function getCookie(name) {
+            // First try to get from meta tag
+            if (name === 'csrftoken') {
+                const metaToken = document.querySelector('meta[name="csrf-token"]');
+                if (metaToken) {
+                    return metaToken.getAttribute('content');
+                }
+            }
+            
+            // Fallback to cookie
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        
+        // Update recording status immediately and then every 5 seconds
+        updateRecordingStatus();
+        setInterval(updateRecordingStatus, 5000);
     </script>
 </body>
 </html>
