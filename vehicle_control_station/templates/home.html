@@ -47,6 +47,41 @@
             font-weight: 600;
         }
         
+        .header-controls {
+            display: grid;
+            grid-template-columns: 200px 1fr 200px;
+            gap: 20px;
+            align-items: center;
+            margin-top: 15px;
+        }
+        
+        .header-center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .header-instrument {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .header-instrument .instrument {
+            max-width: 180px;
+        }
+        
+        .header-instrument .instrument-label {
+            font-size: 0.7em;
+            margin-top: 4px;
+        }
+        
+        .header-instrument .instrument-value {
+            font-size: 0.7em;
+            margin-top: 2px;
+        }
+        
         .status-indicator {
             display: inline-block;
             margin-top: 5px;
@@ -338,7 +373,7 @@
         }
         
         #map {
-            height: 300px;
+            height: 400px;
             width: 100%;
             border-radius: 4px;
             border: 1px solid #2a2a3e;
@@ -503,40 +538,69 @@
             <h1>Vehicle Control Station (VCS)</h1>
             <div id="ros-status" class="status-indicator status-disconnected">Disconnected</div>
             
-            <!-- Disk Space Widget for Rosbag Logging -->
-            <div class="disk-space-widget">
-                <div class="disk-space-title">🗄️ Rosbag Storage Capacity</div>
-                <div class="disk-space-bar-container">
-                    <div id="disk-space-bar" class="disk-space-bar low" style="width: 0%;"></div>
-                </div>
-                <div class="disk-space-info">
-                    <div>
-                        <span class="disk-space-label">Used:</span>
-                        <span id="disk-used" class="disk-space-value">-- GB</span>
+            <!-- Header Controls with Avionics on Sides -->
+            <div class="header-controls">
+                <!-- Left: Attitude Indicator -->
+                <div class="header-instrument">
+                    <div class="instrument">
+                        <canvas id="attitude-indicator" width="300" height="300"></canvas>
                     </div>
-                    <div>
-                        <span class="disk-space-label">Free:</span>
-                        <span id="disk-free" class="disk-space-value">-- GB</span>
-                    </div>
-                    <div>
-                        <span class="disk-space-label">Total:</span>
-                        <span id="disk-total" class="disk-space-value">-- GB</span>
+                    <div class="instrument-label">Attitude Indicator</div>
+                    <div class="instrument-value">
+                        Pitch: <span id="pitch-value">0.0°</span><br>
+                        Roll: <span id="roll-value">0.0°</span>
                     </div>
                 </div>
-            </div>
-            
-            <!-- Recording Controls -->
-            <div class="recording-controls">
-                <div class="recording-title">📹 Topic Recording</div>
-                <div class="recording-buttons">
-                    <button id="start-recording-btn" class="recording-btn start-btn" onclick="startRecording()">
-                        <span class="recording-indicator" id="recording-indicator"></span>
-                        Start Recording
-                    </button>
-                    <button id="stop-recording-btn" class="recording-btn stop-btn" onclick="stopRecording()" disabled>
-                        Stop Recording
-                    </button>
-                    <div id="recording-status" class="recording-status idle">Idle</div>
+                
+                <!-- Center: Rosbag Controls -->
+                <div class="header-center">
+                    <!-- Disk Space Widget for Rosbag Logging -->
+                    <div class="disk-space-widget">
+                        <div class="disk-space-title">🗄️ Rosbag Storage Capacity</div>
+                        <div class="disk-space-bar-container">
+                            <div id="disk-space-bar" class="disk-space-bar low" style="width: 0%;"></div>
+                        </div>
+                        <div class="disk-space-info">
+                            <div>
+                                <span class="disk-space-label">Used:</span>
+                                <span id="disk-used" class="disk-space-value">-- GB</span>
+                            </div>
+                            <div>
+                                <span class="disk-space-label">Free:</span>
+                                <span id="disk-free" class="disk-space-value">-- GB</span>
+                            </div>
+                            <div>
+                                <span class="disk-space-label">Total:</span>
+                                <span id="disk-total" class="disk-space-value">-- GB</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Recording Controls -->
+                    <div class="recording-controls">
+                        <div class="recording-title">📹 Topic Recording</div>
+                        <div class="recording-buttons">
+                            <button id="start-recording-btn" class="recording-btn start-btn" onclick="startRecording()">
+                                <span class="recording-indicator" id="recording-indicator"></span>
+                                Start Recording
+                            </button>
+                            <button id="stop-recording-btn" class="recording-btn stop-btn" onclick="stopRecording()" disabled>
+                                Stop Recording
+                            </button>
+                            <div id="recording-status" class="recording-status idle">Idle</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right: Heading Indicator -->
+                <div class="header-instrument">
+                    <div class="instrument">
+                        <canvas id="heading-indicator" width="300" height="300"></canvas>
+                    </div>
+                    <div class="instrument-label">Heading Indicator</div>
+                    <div class="instrument-value">
+                        <span id="heading-value">0.0°</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -554,35 +618,8 @@
                     <img src="http://192.168.0.35:8080/stream?topic=/stereo/right/image_raw" alt="Right Stereo Camera Image">
                 </div>
                 <div class="card">
-                    <h2>Navigation & Avionics</h2>
-                    <div class="avionics-panel">
-                        <!-- GPS Map at the top -->
-                        <div id="map-container">
-                            <div id="map"></div>
-                        </div>
-                        
-                        <!-- Avionics Instruments -->
-                        <div class="instruments-container">
-                            <div>
-                                <div class="instrument">
-                                    <canvas id="attitude-indicator" width="300" height="300"></canvas>
-                                </div>
-                                <div class="instrument-label">Attitude Indicator</div>
-                                <div class="instrument-value">
-                                    Pitch: <span id="pitch-value">0.0°</span> | Roll: <span id="roll-value">0.0°</span>
-                                </div>
-                            </div>
-                            <div>
-                                <div class="instrument">
-                                    <canvas id="heading-indicator" width="300" height="300"></canvas>
-                                </div>
-                                <div class="instrument-label">Heading Indicator</div>
-                                <div class="instrument-value">
-                                    <span id="heading-value">0.0°</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <h2>GPS Navigation</h2>
+                    <div id="map"></div>
                 </div>
             </div>
         </div>
