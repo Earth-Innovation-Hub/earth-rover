@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROS Image and Data Display</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script type="text/javascript" src="/static/vehicle-control-station/roslib.min.js"></script>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 5px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            background: #0f1419;
+            border-radius: 8px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+            padding: 10px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .header h1 {
+            margin: 0;
+            color: #e0e0e0;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            margin-top: 5px;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+        
+        .status-connected {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .status-disconnected {
+            background: #f44336;
+            color: white;
+        }
+        
+        .section {
+            margin-bottom: 10px;
+        }
+        
+        .section-title {
+            font-size: 1.1em;
+            color: #e0e0e0;
+            margin-bottom: 8px;
+            font-weight: 600;
+            padding-left: 6px;
+            border-left: 3px solid #667eea;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .grid-3 {
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        }
+        
+        .card {
+            background: #1a1f2e;
+            border-radius: 6px;
+            padding: 8px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(102,126,234,0.3);
+        }
+        
+        .card h2 {
+            margin: 0 0 6px 0;
+            font-size: 1em;
+            color: #b0b0b0;
+            font-weight: 600;
+        }
+        
+        .camera-card {
+            text-align: center;
+        }
+        
+        .camera-card img {
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            min-height: 400px;
+            object-fit: contain;
+            border-radius: 4px;
+            border: 1px solid #333;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        
+        .plotting-area {
+            background: #0a0e1a;
+            border-radius: 4px;
+            padding: 5px;
+            min-height: 400px;
+            border: 1px solid #2a2a3e;
+        }
+        
+        #spectrometer-plotting-area {
+            min-height: 400px;
+        }
+        
+        #odometry-plotting-area {
+            min-height: 400px;
+        }
+        
+        #map {
+            height: 400px;
+            width: 100%;
+            border-radius: 4px;
+            border: 1px solid #2a2a3e;
+        }
+        
+        #serial-plotting-area {
+            min-height: 400px;
+        }
+        
+        #laserscan-canvas {
+            width: 100%;
+            height: 400px;
+            border-radius: 4px;
+            background: #1a1a1a;
+            display: block;
+        }
+        
+        .camera-card h2 {
+            margin: 0 0 4px 0;
+            font-size: 0.9em;
+        }
+        
+        #velodyne-container {
+            width: 100%;
+            height: 500px;
+            border-radius: 4px;
+            background: #1a1a1a;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .velodyne-controls {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 6px;
+            border-radius: 4px;
+            color: white;
+            font-size: 0.75em;
+            z-index: 10;
+        }
+        
+        .velodyne-controls button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 3px 8px;
+            margin: 1px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }
+        
+        .velodyne-controls button:hover {
+            background: #5568d3;
+        }
+        
+        .velodyne-info {
+            margin-top: 5px;
+            font-size: 0.8em;
+            color: #a0a0a0;
+        }
+        
+        .laser-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #667eea;
+            margin-left: 8px;
+        }
+        
+        .laserscan-info {
+            margin-top: 5px;
+            font-size: 0.8em;
+            color: #a0a0a0;
+        }
+        
+        @media (max-width: 1200px) {
+            .grid {
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            }
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 2px;
+            }
+            
+            .container {
+                padding: 5px;
+            }
+            
+            .header h1 {
+                font-size: 1.2em;
+            }
+            
+            .grid {
+                grid-template-columns: 1fr;
+                gap: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ROS Image and Data Display</h1>
+            <div id="ros-status" class="status-indicator status-disconnected">Disconnected</div>
+        </div>
+        
+        <!-- Camera Images Section -->
+        <div class="section">
+            <div class="section-title">Camera Feeds</div>
+            <div class="grid grid-3">
+                <div class="card camera-card">
+                    <h2>Left Stereo Camera</h2>
+                    <img src="http://192.168.0.35:8080/stream?topic=/stereo/left/image_raw" alt="Left Stereo Camera Image">
+                </div>
+                <div class="card camera-card">
+                    <h2>Right Stereo Camera</h2>
+                    <img src="http://192.168.0.35:8080/stream?topic=/stereo/right/image_raw" alt="Right Stereo Camera Image">
+                </div>
+                <div class="card camera-card">
+                    <h2>Fisheye Camera</h2>
+                    <img src="http://192.168.0.35:8080/stream?topic=/camera/fisheye1/image_raw" alt="Fisheye Camera Image">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Data Visualization Section -->
+        <div class="section">
+            <div class="section-title">Sensor Data Visualization</div>
+            <div class="grid">
+                <div class="card">
+                    <h2>Spectrometer Data Plot</h2>
+                    <div id="spectrometer-plotting-area" class="plotting-area"></div>
+                </div>
+                <div class="card">
+                    <h2>Visual Odometry Data Plot</h2>
+                    <div id="odometry-plotting-area" class="plotting-area"></div>
+                </div>
+                <div class="card">
+                    <h2>GPS Path</h2>
+                    <div id="map"></div>
+                </div>
+                <div class="card">
+                    <h2>LASER Ranger - Value: <span id="laser-value" class="laser-value">Loading...</span></h2>
+                    <div id="serial-plotting-area" class="plotting-area"></div>
+                </div>
+                <div class="card">
+                    <h2>Laser Scan (LiDAR)</h2>
+                    <canvas id="laserscan-canvas"></canvas>
+                    <div class="laserscan-info">
+                        <div>Points: <span id="laserscan-points">0</span></div>
+                        <div>Range: <span id="laserscan-range">0.0</span> m</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Velodyne Point Cloud Section -->
+        <div class="section">
+            <div class="section-title">Velodyne 3D Point Cloud</div>
+            <div class="grid">
+                <div class="card" style="grid-column: 1 / -1;">
+                    <h2>Velodyne Point Cloud Visualization</h2>
+                    <div id="velodyne-container">
+                        <div class="velodyne-controls">
+                            <div>Points: <span id="velodyne-points">0</span></div>
+                            <div>Frame: <span id="velodyne-frame">-</span></div>
+                            <button onclick="resetVelodyneView()">Reset View</button>
+                            <button onclick="toggleVelodyneAutoRotate()">Auto Rotate: <span id="auto-rotate-status">Off</span></button>
+                        </div>
+                    </div>
+                    <div class="velodyne-info">
+                        <div>Use mouse to rotate, scroll to zoom, right-click to pan</div>
+                        <div style="margin-top: 4px; font-size: 0.75em; color: #888;">
+                            Note: Transform frame should be 'velodyne' (set in Velodyne driver launch file)
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+// ROS WebSocket connection
+// Updated topics to match current active topics (based on record_Salient_topics.sh)
+var ros = new ROSLIB.Ros({ url: 'ws://192.168.0.35:9090' });
+
+// GPS/Position topic - verify if this topic is still active
+var gpsListener = new ROSLIB.Topic({
+    ros: ros,
+    name: '/mavros/global_position/raw/fix',
+    messageType: 'sensor_msgs/NavSatFix'
+});
+
+// Initialize the map
+
+var map = L.map('map').setView([0, 0], 23); // Set a default view
+// Add OpenStreetMap tiles
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+}).addTo(map);
+
+var pathCoordinates = [];
+var polyline = L.polyline(pathCoordinates, {color: 'blue'}).addTo(map);
+
+gpsListener.subscribe(function(message) {
+    var lat = message.latitude;
+    var lon = message.longitude;
+
+    // Update map view and path
+    var newPoint = [lat, lon];
+    pathCoordinates.push(newPoint);
+    polyline.setLatLngs(pathCoordinates);
+    map.setView(newPoint, 23); // Adjust this number for zoom level
+});
+        // Update status indicator
+        var statusElement = document.getElementById('ros-status');
+        
+        ros.on('connection', function() { 
+            console.log('Connected to websocket server.'); 
+            statusElement.textContent = 'Connected';
+            statusElement.className = 'status-indicator status-connected';
+        });
+        ros.on('error', function(error) { 
+            console.error('Error connecting to websocket server: ', error); 
+            statusElement.textContent = 'Error';
+            statusElement.className = 'status-indicator status-disconnected';
+        });
+        ros.on('close', function() { 
+            console.log('Connection to websocket server closed.'); 
+            statusElement.textContent = 'Disconnected';
+            statusElement.className = 'status-indicator status-disconnected';
+        });
+
+ // Spectrometer plot code
+        // Note: Verify this topic is still active - not in default recording topics
+        var spectrometerListener = new ROSLIB.Topic({
+            ros : ros,
+            name : '/spectrometer',
+            messageType : 'std_msgs/Float64MultiArray'
+        });
+
+        var spectrometerSvg = d3.select("#spectrometer-plotting-area").append("svg")
+            .attr("width", "100%")
+            .attr("height", 400)
+            .attr("viewBox", "0 0 500 400")
+            .attr("preserveAspectRatio", "xMidYMid meet");
+
+        spectrometerListener.subscribe(function(message) {
+            try {
+                var integrationTime = message.data[0];
+                var halfLength = (message.data.length - 1) / 2;
+                var intensities = message.data.slice(1, halfLength + 1);
+                var wavelengths = message.data.slice(halfLength + 1);
+
+                var xSpectrometerScale = d3.scaleLinear().domain([d3.min(wavelengths), d3.max(wavelengths)]).range([0, 500]);
+                var ySpectrometerScale = d3.scaleLinear().domain([d3.min(intensities), d3.max(intensities)]).range([400, 0]);
+
+                // Add an x-axis with custom tick labels
+                var xAxis = d3.axisBottom(xSpectrometerScale)
+                    .tickValues(wavelengths) // Specify custom tick values
+                    .tickFormat(function(d) {
+                        return d.toFixed(2); // Format tick labels as needed
+                    });
+
+                spectrometerSvg.selectAll("*").remove();
+                spectrometerSvg.append("g")
+                    .attr("class", "x-axis")
+                    .attr("transform", "translate(0," + 400 + ")") // Move the x-axis to the bottom
+                    .call(xAxis);
+
+                spectrometerSvg.selectAll("circle")
+                    .data(wavelengths.map((w, i) => ({ wavelength: w, intensity: intensities[i] })))
+                    .enter().append("circle")
+                    .attr("cx", function(d) { return xSpectrometerScale(d.wavelength); })
+                    .attr("cy", function(d) { return ySpectrometerScale(d.intensity); })
+                    .attr("r", 2);
+            } catch (error) {
+                console.error('Error in spectrometer data handling: ', error);
+            }
+        });
+
+var odometryPositions = []; // Array to store odometry positions
+var subsampleRate = 1; // Control the subsampling rate
+
+var odometrySvg = d3.select("#odometry-plotting-area").append("svg")
+    .attr("width", "100%")
+    .attr("height", 400)
+    .attr("viewBox", "0 0 400 400")
+    .attr("preserveAspectRatio", "xMidYMid meet");
+
+// Define scales for the plot, adjust domains as per your data
+var xOdometryScale = d3.scaleLinear().domain([-10, 10]).range([0, 400]); // Example domain, adjust as needed
+var yOdometryScale = d3.scaleLinear().domain([-10, 10]).range([400, 0]); // Example domain, adjust as needed
+
+// Note: Odometry topic may need to be updated based on actual active topics
+// If /camera/pose/sample is not available, check for other odometry topics
+var odometryListener = new ROSLIB.Topic({
+    ros : ros,
+    name : '/camera/pose/sample',  // Update this if topic name has changed
+    messageType : 'nav_msgs/Odometry'
+});
+
+odometryListener.subscribe(function(message) {
+    try {
+        var x = message.pose.pose.position.x;
+        var y = message.pose.pose.position.y;
+
+        // Subsample the data
+        if (odometryPositions.length % subsampleRate === 0) {
+            odometryPositions.push({x: x, y: y});
+
+            // Append new data point to create a trail
+            odometrySvg.append("circle")
+                .attr("cx", xOdometryScale(x))
+                .attr("cy", yOdometryScale(y))
+                .attr("r", 3)
+                .attr("fill", "blue");
+        }
+    } catch (error) {
+        console.error('Error in odometry data handling: ', error);
+    }
+});
+ var laserValueElement = document.getElementById("laser-value");
+
+        // Serial/Laser data topic - verify if this topic is still active
+        var serialListener = new ROSLIB.Topic({
+            ros : ros,
+            name : '/serial_data',
+            messageType : 'std_msgs/String'
+        });
+
+        var serialSvg = d3.select("#serial-plotting-area").append("svg")
+            .attr("width", "100%")
+            .attr("height", 400)
+            .attr("viewBox", "0 0 200 400")
+            .attr("preserveAspectRatio", "xMidYMid meet");
+
+        var xSerialScale = d3.scaleLinear().domain([0, 10]).range([0, 200]); // Adjust the range for horizontal squashing
+        var ySerialScale = d3.scaleLinear().domain([0, 20]).range([400, 0]);
+
+        var dataPoints = [];
+        var maxDataPoints = 50;
+
+        serialListener.subscribe(function(message) {
+            try {
+                var newData = parseFloat(message.data);
+                dataPoints.push(newData);
+                if (dataPoints.length > maxDataPoints) {
+                    dataPoints.shift();
+                }
+
+                var circles = serialSvg.selectAll("circle").data(dataPoints);
+                circles.enter().append("circle")
+                    .attr("cx", function(d, i) { return xSerialScale(i); })
+                    .attr("cy", function(d) { return ySerialScale(d); })
+                    .attr("r", 2);
+                circles.attr("cx", function(d, i) { return xSerialScale(i); })
+                    .attr("cy", function(d) { return ySerialScale(d); });
+                circles.exit().remove();
+
+                // Update the LASER Ranger value in the title
+                laserValueElement.textContent = newData;
+            } catch (error) {
+                console.error('Error in serial data handling: ', error);
+            }
+        });
+
+        // Laser Scan Visualization
+        var laserscanCanvas = document.getElementById('laserscan-canvas');
+        var laserscanCtx = laserscanCanvas.getContext('2d');
+        var laserscanPointsElement = document.getElementById('laserscan-points');
+        var laserscanRangeElement = document.getElementById('laserscan-range');
+        
+        // Set canvas size
+        function resizeLaserscanCanvas() {
+            var container = laserscanCanvas.parentElement;
+            laserscanCanvas.width = container.clientWidth - 20; // Account for padding
+            laserscanCanvas.height = 400;
+        }
+        resizeLaserscanCanvas();
+        window.addEventListener('resize', resizeLaserscanCanvas);
+        
+        // Laser scan topic - /scan is in the active topics list
+        var laserscanListener = new ROSLIB.Topic({
+            ros: ros,
+            name: '/scan',
+            messageType: 'sensor_msgs/LaserScan'
+        });
+        
+        function drawLaserscan(message) {
+            try {
+                var width = laserscanCanvas.width;
+                var height = laserscanCanvas.height;
+                var centerX = width / 2;
+                var centerY = height / 2;
+                var maxRange = message.range_max || 10.0; // Maximum range to display
+                var scale = Math.min(width, height) / 2 / maxRange; // Scale factor
+                
+                // Clear canvas with dark background
+                laserscanCtx.fillStyle = '#1a1a1a';
+                laserscanCtx.fillRect(0, 0, width, height);
+                
+                // Draw grid
+                laserscanCtx.strokeStyle = '#333';
+                laserscanCtx.lineWidth = 1;
+                for (var i = 1; i <= 5; i++) {
+                    var radius = (maxRange / 5) * i * scale;
+                    laserscanCtx.beginPath();
+                    laserscanCtx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                    laserscanCtx.stroke();
+                }
+                
+                // Draw axes
+                laserscanCtx.strokeStyle = '#444';
+                laserscanCtx.lineWidth = 1;
+                laserscanCtx.beginPath();
+                laserscanCtx.moveTo(centerX, 0);
+                laserscanCtx.lineTo(centerX, height);
+                laserscanCtx.moveTo(0, centerY);
+                laserscanCtx.lineTo(width, centerY);
+                laserscanCtx.stroke();
+                
+                // Draw robot position (center)
+                laserscanCtx.fillStyle = '#00ff00';
+                laserscanCtx.beginPath();
+                laserscanCtx.arc(centerX, centerY, 5, 0, 2 * Math.PI);
+                laserscanCtx.fill();
+                
+                // Draw robot orientation indicator
+                laserscanCtx.strokeStyle = '#00ff00';
+                laserscanCtx.lineWidth = 2;
+                laserscanCtx.beginPath();
+                laserscanCtx.moveTo(centerX, centerY);
+                laserscanCtx.lineTo(centerX, centerY - 20);
+                laserscanCtx.stroke();
+                
+                // Draw laser scan points
+                var angleMin = message.angle_min;
+                var angleIncrement = message.angle_increment;
+                var ranges = message.ranges;
+                var validPoints = 0;
+                var maxRangeFound = 0;
+                
+                // Draw valid points
+                laserscanCtx.fillStyle = '#00ffff';
+                for (var i = 0; i < ranges.length; i++) {
+                    var range = ranges[i];
+                    
+                    // Skip invalid ranges
+                    if (isNaN(range) || range < message.range_min || range > message.range_max) {
+                        continue;
+                    }
+                    
+                    validPoints++;
+                    if (range > maxRangeFound) {
+                        maxRangeFound = range;
+                    }
+                    
+                    var angle = angleMin + i * angleIncrement;
+                    var x = centerX + Math.sin(angle) * range * scale;
+                    var y = centerY - Math.cos(angle) * range * scale;
+                    
+                    // Draw point
+                    laserscanCtx.beginPath();
+                    laserscanCtx.arc(x, y, 2, 0, 2 * Math.PI);
+                    laserscanCtx.fill();
+                    
+                    // Draw line from robot to point (optional, can be commented out for performance)
+                    laserscanCtx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
+                    laserscanCtx.lineWidth = 0.5;
+                    laserscanCtx.beginPath();
+                    laserscanCtx.moveTo(centerX, centerY);
+                    laserscanCtx.lineTo(x, y);
+                    laserscanCtx.stroke();
+                }
+                
+                // Update info display
+                laserscanPointsElement.textContent = validPoints;
+                laserscanRangeElement.textContent = maxRangeFound.toFixed(2);
+                
+            } catch (error) {
+                console.error('Error drawing laser scan: ', error);
+            }
+        }
+        
+        laserscanListener.subscribe(function(message) {
+            drawLaserscan(message);
+        });
+
+        // Velodyne Point Cloud 3D Visualization
+        var velodyneContainer = document.getElementById('velodyne-container');
+        var velodynePointsElement = document.getElementById('velodyne-points');
+        var velodyneFrameElement = document.getElementById('velodyne-frame');
+        var velodyneAutoRotate = false;
+        
+        // Initialize Three.js scene
+        var velodyneScene = new THREE.Scene();
+        velodyneScene.background = new THREE.Color(0x1a1a1a);
+        
+        // Camera
+        var velodyneCamera = new THREE.PerspectiveCamera(
+            75,
+            velodyneContainer.clientWidth / velodyneContainer.clientHeight,
+            0.1,
+            1000
+        );
+        velodyneCamera.position.set(0, 0, 50);
+        
+        // Renderer
+        var velodyneRenderer = new THREE.WebGLRenderer({ antialias: true });
+        velodyneRenderer.setSize(velodyneContainer.clientWidth, velodyneContainer.clientHeight);
+        velodyneContainer.appendChild(velodyneRenderer.domElement);
+        
+        // Lighting
+        var ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        velodyneScene.add(ambientLight);
+        var directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(50, 50, 50);
+        velodyneScene.add(directionalLight);
+        
+        // Grid helper
+        var gridHelper = new THREE.GridHelper(100, 20, 0x444444, 0x222222);
+        velodyneScene.add(gridHelper);
+        
+        // Axes helper
+        var axesHelper = new THREE.AxesHelper(10);
+        velodyneScene.add(axesHelper);
+        
+        // Point cloud geometry and material
+        var velodyneGeometry = new THREE.BufferGeometry();
+        var velodyneMaterial = new THREE.PointsMaterial({
+            color: 0x00ffff,
+            size: 0.1,
+            sizeAttenuation: true
+        });
+        var velodynePoints = new THREE.Points(velodyneGeometry, velodyneMaterial);
+        velodyneScene.add(velodynePoints);
+        
+        // Mouse controls
+        var mouseDown = false;
+        var mouseX = 0;
+        var mouseY = 0;
+        var cameraRotationX = 0;
+        var cameraRotationY = 0;
+        
+        velodyneRenderer.domElement.addEventListener('mousedown', function(e) {
+            mouseDown = true;
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        velodyneRenderer.domElement.addEventListener('mousemove', function(e) {
+            if (mouseDown) {
+                var deltaX = e.clientX - mouseX;
+                var deltaY = e.clientY - mouseY;
+                
+                cameraRotationY += deltaX * 0.01;
+                cameraRotationX += deltaY * 0.01;
+                
+                var radius = 50;
+                velodyneCamera.position.x = radius * Math.sin(cameraRotationY) * Math.cos(cameraRotationX);
+                velodyneCamera.position.y = radius * Math.sin(cameraRotationX);
+                velodyneCamera.position.z = radius * Math.cos(cameraRotationY) * Math.cos(cameraRotationX);
+                velodyneCamera.lookAt(0, 0, 0);
+                
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            }
+        });
+        
+        velodyneRenderer.domElement.addEventListener('mouseup', function() {
+            mouseDown = false;
+        });
+        
+        velodyneRenderer.domElement.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            var radius = Math.sqrt(
+                velodyneCamera.position.x * velodyneCamera.position.x +
+                velodyneCamera.position.y * velodyneCamera.position.y +
+                velodyneCamera.position.z * velodyneCamera.position.z
+            );
+            radius += e.deltaY * 0.1;
+            radius = Math.max(10, Math.min(200, radius));
+            
+            var normalized = new THREE.Vector3(
+                velodyneCamera.position.x,
+                velodyneCamera.position.y,
+                velodyneCamera.position.z
+            ).normalize();
+            
+            velodyneCamera.position.set(
+                normalized.x * radius,
+                normalized.y * radius,
+                normalized.z * radius
+            );
+        });
+        
+        // Right-click pan
+        velodyneRenderer.domElement.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+        
+        var rightMouseDown = false;
+        var rightMouseX = 0;
+        var rightMouseY = 0;
+        var panX = 0;
+        var panY = 0;
+        
+        velodyneRenderer.domElement.addEventListener('mousedown', function(e) {
+            if (e.button === 2) {
+                rightMouseDown = true;
+                rightMouseX = e.clientX;
+                rightMouseY = e.clientY;
+            }
+        });
+        
+        velodyneRenderer.domElement.addEventListener('mousemove', function(e) {
+            if (rightMouseDown) {
+                var deltaX = e.clientX - rightMouseX;
+                var deltaY = e.clientY - rightMouseY;
+                
+                panX += deltaX * 0.1;
+                panY -= deltaY * 0.1;
+                
+                velodyneCamera.position.x += (deltaX * 0.1);
+                velodyneCamera.position.y -= (deltaY * 0.1);
+                
+                rightMouseX = e.clientX;
+                rightMouseY = e.clientY;
+            }
+        });
+        
+        velodyneRenderer.domElement.addEventListener('mouseup', function(e) {
+            if (e.button === 2) {
+                rightMouseDown = false;
+            }
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            velodyneCamera.aspect = velodyneContainer.clientWidth / velodyneContainer.clientHeight;
+            velodyneCamera.updateProjectionMatrix();
+            velodyneRenderer.setSize(velodyneContainer.clientWidth, velodyneContainer.clientHeight);
+        });
+        
+        // Animation loop
+        var velodyneRotationAngle = 0;
+        function animateVelodyne() {
+            requestAnimationFrame(animateVelodyne);
+            
+            if (velodyneAutoRotate) {
+                velodyneRotationAngle += 0.01;
+                var radius = 50;
+                velodyneCamera.position.x = radius * Math.sin(velodyneRotationAngle);
+                velodyneCamera.position.z = radius * Math.cos(velodyneRotationAngle);
+                velodyneCamera.position.y = 20;
+                velodyneCamera.lookAt(0, 0, 0);
+            }
+            
+            velodyneRenderer.render(velodyneScene, velodyneCamera);
+        }
+        animateVelodyne();
+        
+        // Velodyne topic subscription
+        // Note: The frame_id in the PointCloud2 message header should be 'velodyne'
+        // This is set by the Velodyne driver node (typically in the launch file configuration)
+        var velodyneListener = new ROSLIB.Topic({
+            ros: ros,
+            name: '/velodyne_points',
+            messageType: 'sensor_msgs/PointCloud2'
+        });
+        
+        function updateVelodynePointCloud(message) {
+            try {
+                // Validate and display frame_id - ensure it's 'velodyne'
+                // The frame_id determines the coordinate frame for transform operations
+                var frameId = message.header ? message.header.frame_id : 'unknown';
+                velodyneFrameElement.textContent = frameId;
+                
+                // Validate frame_id is 'velodyne' (required for proper transform handling)
+                if (frameId !== 'velodyne') {
+                    console.warn('Velodyne point cloud frame_id is "' + frameId + '" but expected "velodyne". ' +
+                                 'Update the Velodyne driver launch file to set frame_id="velodyne"');
+                    velodyneFrameElement.style.color = '#ff6b6b'; // Red color for warning
+                } else {
+                    velodyneFrameElement.style.color = '#4caf50'; // Green color for correct
+                }
+                
+                // Parse PointCloud2 message
+                var points = [];
+                var pointCount = message.width * message.height;
+                
+                if (pointCount === 0) {
+                    return;
+                }
+                
+                // Find x, y, z field indices
+                var xIdx = -1, yIdx = -1, zIdx = -1, rgbIdx = -1;
+                for (var i = 0; i < message.fields.length; i++) {
+                    if (message.fields[i].name === 'x') xIdx = i;
+                    if (message.fields[i].name === 'y') yIdx = i;
+                    if (message.fields[i].name === 'z') zIdx = i;
+                    if (message.fields[i].name === 'rgb' || message.fields[i].name === 'intensity') rgbIdx = i;
+                }
+                
+                if (xIdx === -1 || yIdx === -1 || zIdx === -1) {
+                    console.warn('PointCloud2 missing required fields (x, y, z)');
+                    return;
+                }
+                
+                var pointStep = message.point_step;
+                var dataView = new DataView(message.data.buffer);
+                
+                // Parse points
+                for (var i = 0; i < pointCount; i++) {
+                    var offset = i * pointStep;
+                    
+                    var x = dataView.getFloat32(offset + message.fields[xIdx].offset, true);
+                    var y = dataView.getFloat32(offset + message.fields[yIdx].offset, true);
+                    var z = dataView.getFloat32(offset + message.fields[zIdx].offset, true);
+                    
+                    // Skip invalid points
+                    if (isNaN(x) || isNaN(y) || isNaN(z) || 
+                        !isFinite(x) || !isFinite(y) || !isFinite(z)) {
+                        continue;
+                    }
+                    
+                    points.push(x, y, z);
+                }
+                
+                // Update geometry
+                if (points.length > 0) {
+                    velodyneGeometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+                    velodyneGeometry.computeBoundingSphere();
+                    velodynePointsElement.textContent = (points.length / 3).toLocaleString();
+                }
+                
+            } catch (error) {
+                console.error('Error processing Velodyne point cloud: ', error);
+            }
+        }
+        
+        velodyneListener.subscribe(function(message) {
+            updateVelodynePointCloud(message);
+        });
+        
+        // Control functions
+        function resetVelodyneView() {
+            velodyneCamera.position.set(0, 0, 50);
+            velodyneCamera.lookAt(0, 0, 0);
+            cameraRotationX = 0;
+            cameraRotationY = 0;
+        }
+        
+        function toggleVelodyneAutoRotate() {
+            velodyneAutoRotate = !velodyneAutoRotate;
+            document.getElementById('auto-rotate-status').textContent = velodyneAutoRotate ? 'On' : 'Off';
+        }
+    </script>
+</body>
+</html>
