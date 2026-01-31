@@ -4,612 +4,73 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
-    <title>Vehicle Control Station (VCS)</title>
+    <title>Earth Rover - Vehicle Control Station</title>
+    
+    <!-- External Libraries -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <script type="text/javascript" src="/static/vehicle-control-station/roslib.min.js"></script>
     <script src="https://d3js.org/d3.v6.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
-    <style>
-        * {
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 5px;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            min-height: 100vh;
-        }
-        
-        .container {
-            max-width: 100%;
-            margin: 0 auto;
-            background: #0f1419;
-            border-radius: 8px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.5);
-            padding: 10px;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 10px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #667eea;
-        }
-        
-        .header h1 {
-            margin: 0;
-            color: #e0e0e0;
-            font-size: 1.5em;
-            font-weight: 600;
-        }
-        
-        .header-controls {
-            display: grid;
-            grid-template-columns: 200px 200px 1fr 200px;
-            gap: 20px;
-            align-items: center;
-            margin-top: 15px;
-        }
-        
-        .header-center {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .header-instrument {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        
-        .header-instrument .instrument {
-            max-width: 180px;
-        }
-        
-        .header-instrument .instrument-label {
-            font-size: 0.7em;
-            margin-top: 4px;
-        }
-        
-        .header-instrument .instrument-value {
-            font-size: 0.7em;
-            margin-top: 2px;
-        }
-        
-        .status-indicator {
-            display: inline-block;
-            margin-top: 5px;
-            padding: 4px 12px;
-            border-radius: 15px;
-            font-size: 0.8em;
-            font-weight: 500;
-        }
-        
-        .status-connected {
-            background: #4caf50;
-            color: white;
-        }
-        
-        .status-disconnected {
-            background: #f44336;
-            color: white;
-        }
-        
-        .disk-space-widget {
-            display: inline-flex;
-            margin-top: 8px;
-            padding: 10px 16px;
-            border-radius: 8px;
-            background: #1a1f2e;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-            gap: 15px;
-            align-items: center;
-        }
-        
-        .disk-space-title {
-            font-size: 0.75em;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            writing-mode: vertical-rl;
-            text-orientation: mixed;
-        }
-        
-        .disk-space-bar-container {
-            background: #0a0e1a;
-            border-radius: 10px;
-            width: 30px;
-            height: 150px;
-            overflow: hidden;
-            position: relative;
-            border: 1px solid #2a2a3e;
-            display: flex;
-            flex-direction: column-reverse;
-        }
-        
-        .disk-space-bar {
-            width: 100%;
-            min-height: 2%;
-            transition: height 0.3s ease, background-color 0.3s ease;
-            border-radius: 10px;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .disk-space-bar::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(180deg, 
-                rgba(255,255,255,0.1) 0%, 
-                rgba(255,255,255,0.2) 50%, 
-                rgba(255,255,255,0.1) 100%);
-            animation: shimmer 2s infinite;
-        }
-        
-        @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-        }
-        
-        .disk-space-bar.low {
-            background: linear-gradient(90deg, #4caf50 0%, #66bb6a 100%);
-        }
-        
-        .disk-space-bar.medium {
-            background: linear-gradient(90deg, #ff9800 0%, #ffa726 100%);
-        }
-        
-        .disk-space-bar.high {
-            background: linear-gradient(90deg, #f44336 0%, #ef5350 100%);
-        }
-        
-        .disk-space-info {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            font-size: 0.75em;
-            color: #b0b0b0;
-        }
-        
-        .disk-space-info > div {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-        
-        .disk-space-label {
-            font-weight: 600;
-            font-size: 0.85em;
-        }
-        
-        .disk-space-value {
-            font-family: 'Courier New', monospace;
-            color: #667eea;
-        }
-        
-        .recording-controls {
-            display: inline-block;
-            margin-top: 8px;
-            margin-left: 16px;
-            padding: 10px 16px;
-            border-radius: 8px;
-            background: #1a1f2e;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        }
-        
-        .recording-title {
-            font-size: 0.75em;
-            color: #888;
-            margin-bottom: 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .recording-buttons {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-        
-        .recording-btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            font-size: 0.85em;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        
-        .recording-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-        }
-        
-        .recording-btn:active {
-            transform: translateY(0);
-        }
-        
-        .recording-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .start-btn {
-            background: linear-gradient(135deg, #f44336 0%, #e53935 100%);
-            color: white;
-        }
-        
-        .start-btn:hover:not(:disabled) {
-            background: linear-gradient(135deg, #e53935 0%, #d32f2f 100%);
-        }
-        
-        .stop-btn {
-            background: linear-gradient(135deg, #607d8b 0%, #546e7a 100%);
-            color: white;
-        }
-        
-        .stop-btn:hover:not(:disabled) {
-            background: linear-gradient(135deg, #546e7a 0%, #455a64 100%);
-        }
-        
-        .recording-status {
-            font-size: 0.75em;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .recording-status.idle {
-            background: rgba(96, 125, 139, 0.2);
-            color: #90a4ae;
-        }
-        
-        .recording-status.active {
-            background: rgba(244, 67, 54, 0.2);
-            color: #f44336;
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
-        
-        .recording-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 4px;
-        }
-        
-        .recording-indicator.recording {
-            background: #f44336;
-            animation: blink 1s infinite;
-        }
-        
-        @keyframes blink {
-            0%, 50%, 100% { opacity: 1; }
-            25%, 75% { opacity: 0.3; }
-        }
-        
-        .section {
-            margin-bottom: 10px;
-        }
-        
-        .section-title {
-            font-size: 1.1em;
-            color: #e0e0e0;
-            margin-bottom: 8px;
-            font-weight: 600;
-            padding-left: 6px;
-            border-left: 3px solid #667eea;
-        }
-        
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 8px;
-            margin-bottom: 10px;
-        }
-        
-        .grid-3 {
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-        }
-        
-        .card {
-            background: #1a1f2e;
-            border-radius: 6px;
-            padding: 8px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        
-        .card:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 2px 6px rgba(102,126,234,0.3);
-        }
-        
-        .card h2 {
-            margin: 0 0 6px 0;
-            font-size: 1em;
-            color: #b0b0b0;
-            font-weight: 600;
-        }
-        
-        .camera-card {
-            text-align: center;
-        }
-        
-        .camera-card img {
-            width: 100%;
-            max-width: 100%;
-            height: auto;
-            min-height: 400px;
-            object-fit: contain;
-            border-radius: 4px;
-            border: 1px solid #333;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-        
-        .plotting-area {
-            background: #0a0e1a;
-            border-radius: 4px;
-            padding: 5px;
-            min-height: 400px;
-            border: 1px solid #2a2a3e;
-        }
-        
-        #spectrometer-plotting-area {
-            min-height: 400px;
-        }
-        
-        #odometry-plotting-area {
-            min-height: 400px;
-        }
-        
-        #map {
-            height: 400px;
-            width: 100%;
-            border-radius: 4px;
-            border: 1px solid #2a2a3e;
-        }
-        
-        #serial-plotting-area {
-            min-height: 400px;
-        }
-        
-        #laserscan-canvas {
-            width: 100%;
-            height: 400px;
-            border-radius: 4px;
-            background: #1a1a1a;
-            display: block;
-        }
-        
-        .camera-card h2 {
-            margin: 0 0 4px 0;
-            font-size: 0.9em;
-        }
-        
-        #velodyne-container {
-            width: 100%;
-            height: 500px;
-            border-radius: 4px;
-            background: #1a1a1a;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .velodyne-controls {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 6px;
-            border-radius: 4px;
-            color: white;
-            font-size: 0.75em;
-            z-index: 10;
-        }
-        
-        .velodyne-controls button {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 3px 8px;
-            margin: 1px;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 0.8em;
-        }
-        
-        .velodyne-controls button:hover {
-            background: #5568d3;
-        }
-        
-        .velodyne-info {
-            margin-top: 5px;
-            font-size: 0.8em;
-            color: #a0a0a0;
-        }
-        
-        .laser-value {
-            font-size: 1.2em;
-            font-weight: bold;
-            color: #667eea;
-            margin-left: 8px;
-        }
-        
-        .laserscan-info {
-            margin-top: 5px;
-            font-size: 0.8em;
-            color: #a0a0a0;
-        }
-        
-        /* Avionics Instruments Styles */
-        .avionics-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
-        
-        .instruments-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-top: 10px;
-        }
-        
-        .instrument {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 1;
-            max-width: 250px;
-            margin: 0 auto;
-        }
-        
-        .instrument canvas {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            background: radial-gradient(circle, #1a1a1a 0%, #0a0a0a 100%);
-            box-shadow: 
-                inset 0 0 20px rgba(0,0,0,0.8),
-                0 4px 15px rgba(0,0,0,0.5);
-        }
-        
-        .instrument-label {
-            text-align: center;
-            margin-top: 8px;
-            font-size: 0.9em;
-            color: #b0b0b0;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .instrument-value {
-            text-align: center;
-            margin-top: 4px;
-            font-size: 0.85em;
-            color: #667eea;
-            font-family: 'Courier New', monospace;
-        }
-        
-        #map-container {
-            width: 100%;
-            margin-bottom: 10px;
-        }
-        
-        @media (max-width: 1200px) {
-            .grid {
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            }
-        }
-        
-        @media (max-width: 768px) {
-            body {
-                padding: 2px;
-            }
-            
-            .container {
-                padding: 5px;
-            }
-            
-            .header h1 {
-                font-size: 1.2em;
-            }
-            
-            .grid {
-                grid-template-columns: 1fr;
-                gap: 5px;
-            }
-        }
-    </style>
+    <script type="text/javascript" src="/static/vehicle-control-station/roslib.min.js"></script>
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/static/vehicle-control-station/vcs-styles.css">
 </head>
 <body>
     <div class="container">
+        <!-- ============================================
+             HEADER & STATUS
+             ============================================ -->
         <div class="header">
-            <h1>Vehicle Control Station (VCS)</h1>
-            <div id="ros-status" class="status-indicator status-disconnected">Disconnected</div>
-            
-            <!-- Header Controls with Avionics on Sides -->
-            <div class="header-controls">
-                <!-- Left 1: Attitude Indicator -->
-                <div class="header-instrument">
-                    <div class="instrument">
-                        <canvas id="attitude-indicator" width="300" height="300"></canvas>
-                    </div>
-                    <div class="instrument-label">Attitude Indicator</div>
-                    <div class="instrument-value">
-                        Pitch: <span id="pitch-value">0.0°</span><br>
-                        Roll: <span id="roll-value">0.0°</span>
-                    </div>
-                </div>
-                
-                <!-- Left 2: Altitude Indicator -->
-                <div class="header-instrument">
-                    <div class="instrument">
-                        <canvas id="altitude-indicator" width="300" height="300"></canvas>
-                    </div>
-                    <div class="instrument-label">Altitude Indicator</div>
-                    <div class="instrument-value">
-                        <span id="altitude-value">0.0 m</span>
-                    </div>
-                </div>
-                
-                <!-- Center: Rosbag Controls -->
-                <div class="header-center">
-                    <!-- Disk Space Widget for Rosbag Logging -->
-                    <div class="disk-space-widget">
-                        <div class="disk-space-title">🗄️ Rosbag Storage Capacity</div>
-                        <div class="disk-space-bar-container">
-                            <div id="disk-space-bar" class="disk-space-bar low" style="height: 0%;"></div>
-                        </div>
-                        <div class="disk-space-info">
-                            <div>
-                                <span class="disk-space-label">Used:</span>
-                                <span id="disk-used" class="disk-space-value">-- GB</span>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h1 style="margin: 0; font-size: 1.2em;">🚙 Earth Rover - VCS</h1>
+                <div id="ros-status" class="status-indicator status-disconnected">Disconnected</div>
+            </div>
+        </div>
+        
+        <!-- ============================================
+             COMPACT AVIONICS INSTRUMENTS
+             ============================================ -->
+        <div class="section">
+            <div class="section-title" onclick="toggleSection('instruments')">
+                <span>⚙️ Avionics Instruments</span>
+                <span class="section-toggle">▼</span>
+            </div>
+            <div id="instruments-content" class="section-content">
+                <!-- Compact Control Panel -->
+                <div class="control-panel" style="margin-bottom: 15px;">
+                    <!-- Disk Space Widget -->
+                    <div class="widget disk-space-widget">
+                        <div>
+                            <div class="text-muted" style="font-size: 0.75em; margin-bottom: 5px;">Storage Capacity</div>
+                            <div class="disk-bar-container">
+                                <div id="disk-bar" class="disk-bar low" style="width: 0%;"></div>
                             </div>
-                            <div>
-                                <span class="disk-space-label">Free:</span>
-                                <span id="disk-free" class="disk-space-value">-- GB</span>
-                            </div>
-                            <div>
-                                <span class="disk-space-label">Total:</span>
-                                <span id="disk-total" class="disk-space-value">-- GB</span>
+                            <div class="disk-info mt-1">
+                                <div class="disk-info-item">
+                                    <div class="disk-label">Used</div>
+                                    <div id="disk-used" class="disk-value">--</div>
+                                </div>
+                                <div class="disk-info-item">
+                                    <div class="disk-label">Free</div>
+                                    <div id="disk-free" class="disk-value">--</div>
+                                </div>
+                                <div class="disk-info-item">
+                                    <div class="disk-label">Total</div>
+                                    <div id="disk-total" class="disk-value">--</div>
+                                </div>
                             </div>
                         </div>
                     </div>
                     
                     <!-- Recording Controls -->
-                    <div class="recording-controls">
-                        <div class="recording-title">📹 Topic Recording</div>
+                    <div class="widget recording-controls">
+                        <div class="recording-title">📹 Rosbag Recording</div>
                         <div class="recording-buttons">
-                            <button id="start-recording-btn" class="recording-btn start-btn" onclick="startRecording()">
-                                <span class="recording-indicator" id="recording-indicator"></span>
+                            <button id="start-recording-btn" class="btn btn-danger" onclick="startRecording()">
                                 Start Recording
                             </button>
-                            <button id="stop-recording-btn" class="recording-btn stop-btn" onclick="stopRecording()" disabled>
+                            <button id="stop-recording-btn" class="btn btn-secondary" onclick="stopRecording()" disabled>
                                 Stop Recording
                             </button>
                             <div id="recording-status" class="recording-status idle">Idle</div>
@@ -617,1302 +78,209 @@
                     </div>
                 </div>
                 
-                <!-- Right: Heading Indicator -->
-                <div class="header-instrument">
-                    <div class="instrument">
-                        <canvas id="heading-indicator" width="300" height="300"></canvas>
+                <div class="instruments-compact">
+                    <div class="instrument-mini">
+                        <canvas id="attitude-mini" width="200" height="200"></canvas>
+                        <div class="label">Attitude</div>
+                        <div class="value" id="pitch-value">P: 0.0° R: 0.0°</div>
                     </div>
-                    <div class="instrument-label">Heading Indicator</div>
-                    <div class="instrument-value">
-                        <span id="heading-value">0.0°</span>
+                    <div class="instrument-mini">
+                        <canvas id="heading-mini" width="200" height="200"></canvas>
+                        <div class="label">Heading</div>
+                        <div class="value" id="heading-value">0.0°</div>
                     </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Camera Images Section -->
-        <div class="section">
-            <div class="section-title">Camera Feeds</div>
-            <div class="grid grid-3">
-                <div class="card camera-card">
-                    <h2>Left Stereo Camera</h2>
-                    <img src="http://192.168.0.35:8080/stream?topic=/stereo/left/image_raw" alt="Left Stereo Camera Image">
-                </div>
-                <div class="card camera-card">
-                    <h2>Right Stereo Camera</h2>
-                    <img src="http://192.168.0.35:8080/stream?topic=/stereo/right/image_raw" alt="Right Stereo Camera Image">
-                </div>
-                <div class="card">
-                    <h2>GPS Navigation</h2>
-                    <div id="map"></div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Data Visualization Section -->
-        <div class="section">
-            <div class="section-title">Sensor Data Visualization</div>
-            <div class="grid">
-                <div class="card">
-                    <h2>Spectrometer Data Plot</h2>
-                    <div id="spectrometer-plotting-area" class="plotting-area"></div>
-                </div>
-                <div class="card">
-                    <h2>Visual Odometry Data Plot</h2>
-                    <div id="odometry-plotting-area" class="plotting-area"></div>
-                </div>
-                <div class="card camera-card">
-                    <h2>Fisheye Camera</h2>
-                    <img src="http://192.168.0.35:8080/stream?topic=/camera/fisheye1/image_raw" alt="Fisheye Camera Image">
-                </div>
-                <div class="card">
-                    <h2>LASER Ranger - Value: <span id="laser-value" class="laser-value">Loading...</span></h2>
-                    <div id="serial-plotting-area" class="plotting-area"></div>
-                </div>
-                <div class="card">
-                    <h2>Laser Scan (LiDAR)</h2>
-                    <canvas id="laserscan-canvas"></canvas>
-                    <div class="laserscan-info">
-                        <div>Points: <span id="laserscan-points">0</span></div>
-                        <div>Range: <span id="laserscan-range">0.0</span> m</div>
+                    <div class="instrument-mini">
+                        <canvas id="altitude-mini" width="200" height="200"></canvas>
+                        <div class="label">Altitude</div>
+                        <div class="value" id="altitude-value">0.0 m</div>
+                    </div>
+                    <div class="instrument-mini">
+                        <canvas id="laser-mini" width="200" height="200"></canvas>
+                        <div class="label">Range</div>
+                        <div class="value" id="laser-value">-- m</div>
                     </div>
                 </div>
             </div>
         </div>
         
-        <!-- Velodyne Point Cloud Section -->
+        <!-- ============================================
+             CAMERA FEEDS
+             ============================================ -->
         <div class="section">
-            <div class="section-title">Velodyne 3D Point Cloud</div>
-            <div class="grid">
-                <div class="card" style="grid-column: 1 / -1;">
-                    <h2>Velodyne Point Cloud Visualization</h2>
-                    <div id="velodyne-container">
-                        <div class="velodyne-controls">
-                            <div>Points: <span id="velodyne-points">0</span></div>
-                            <div>Frame: <span id="velodyne-frame">-</span></div>
-                            <button onclick="resetVelodyneView()">Reset View</button>
-                            <button onclick="toggleVelodyneAutoRotate()">Auto Rotate: <span id="auto-rotate-status">Off</span></button>
+            <div class="section-title" onclick="toggleSection('cameras')">
+                <span>📹 Camera Feeds</span>
+                <span class="section-toggle">▼</span>
+            </div>
+            <div id="cameras-content" class="section-content">
+                <div class="grid grid-3 grid-compact">
+                    <!-- Left Stereo Camera -->
+                    <div class="card camera-card">
+                        <h2>Left Stereo Camera</h2>
+                        <div class="camera-controls">
+                            <button class="camera-btn" onclick="toggleCamera('left-stereo')">▶ Play</button>
+                            <select id="left-stereo-quality" onchange="updateCameraQuality('left-stereo')" style="font-size: 0.75em; padding: 4px;">
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="low">Low</option>
+                                <option value="snapshot">Snapshot</option>
+                            </select>
+                        </div>
+                        <div id="left-stereo-container" class="camera-container">
+                            <div class="camera-placeholder" onclick="startCamera('left-stereo')">
+                                <div class="camera-placeholder-icon">📷</div>
+                                <div>Click to Start</div>
+                            </div>
+                        </div>
+                        <div id="left-stereo-status" class="camera-status paused">Paused</div>
+                    </div>
+                    
+                    <!-- Right Stereo Camera -->
+                    <div class="card camera-card">
+                        <h2>Right Stereo Camera</h2>
+                        <div class="camera-controls">
+                            <button class="camera-btn" onclick="toggleCamera('right-stereo')">▶ Play</button>
+                            <select id="right-stereo-quality" onchange="updateCameraQuality('right-stereo')" style="font-size: 0.75em; padding: 4px;">
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="low">Low</option>
+                                <option value="snapshot">Snapshot</option>
+                            </select>
+                        </div>
+                        <div id="right-stereo-container" class="camera-container">
+                            <div class="camera-placeholder" onclick="startCamera('right-stereo')">
+                                <div class="camera-placeholder-icon">📷</div>
+                                <div>Click to Start</div>
+                            </div>
+                        </div>
+                        <div id="right-stereo-status" class="camera-status paused">Paused</div>
+                    </div>
+                    
+                    <!-- GPS Map -->
+                    <div class="card">
+                        <h2>GPS Navigation</h2>
+                        <div id="map"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ============================================
+             SENSOR DATA
+             ============================================ -->
+        <div class="section">
+            <div class="section-title" onclick="toggleSection('sensors')">
+                <span>📊 Sensor Data</span>
+                <span class="section-toggle">▼</span>
+            </div>
+            <div id="sensors-content" class="section-content">
+                <div class="grid grid-compact">
+                    <!-- Laser Scan -->
+                    <div class="card">
+                        <h2>2D Laser Scan</h2>
+                        <canvas id="laserscan-canvas" class="canvas-container"></canvas>
+                        <div class="text-muted mt-1">
+                            Points: <span id="laserscan-points">0</span> | 
+                            Range: <span id="laserscan-range">0.0</span> m
                         </div>
                     </div>
-                    <div class="velodyne-info">
-                        <div>Use mouse to rotate, scroll to zoom, right-click to pan</div>
-                        <div style="margin-top: 4px; font-size: 0.75em; color: #888;">
-                            Note: Transform frame should be 'velodyne' (set in Velodyne driver launch file)
+                    
+                    <!-- Spectrometer -->
+                    <div class="card camera-card">
+                        <h2>Spectrometer</h2>
+                        <div class="camera-controls">
+                            <button class="camera-btn" onclick="toggleCamera('spectrometer-plot')">▶ Play</button>
+                            <select id="spectrometer-plot-quality" onchange="updateCameraQuality('spectrometer-plot')" style="font-size: 0.75em; padding: 4px;">
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="low">Low</option>
+                                <option value="snapshot">Snapshot</option>
+                            </select>
+                        </div>
+                        <div id="spectrometer-plot-container" class="camera-container">
+                            <div class="camera-placeholder" onclick="startCamera('spectrometer-plot')">
+                                <div class="camera-placeholder-icon">📊</div>
+                                <div>Click to Start</div>
+                            </div>
+                        </div>
+                        <div id="spectrometer-plot-status" class="camera-status paused">Paused</div>
+                    </div>
+                    
+                    <!-- Velodyne 3D Point Cloud -->
+                    <div class="card">
+                        <h2>🎯 Velodyne 3D Point Cloud</h2>
+                        <div id="velodyne-container">
+                            <div style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 4px; color: white; font-size: 0.75em; z-index: 10;">
+                                <div>Points: <span id="velodyne-points">0</span></div>
+                                <div>Frame: <span id="velodyne-frame">-</span></div>
+                                <button class="btn btn-primary" style="margin-top: 5px; padding: 4px 8px; font-size: 0.75em;" onclick="resetVelodyneView()">Reset View</button>
+                                <button class="btn btn-primary" style="margin-top: 5px; padding: 4px 8px; font-size: 0.75em;" onclick="toggleVelodyneAutoRotate()">
+                                    Auto: <span id="auto-rotate-status">Off</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="text-muted mt-1 text-center">
+                            Use mouse to rotate, scroll to zoom, right-click to pan
                         </div>
                     </div>
                 </div>
             </div>
         </div>
+        
+        <!-- ============================================
+             ROS DIAGNOSTICS (COMPACT)
+             ============================================ -->
+        <div class="section">
+            <div class="section-title" onclick="toggleSection('diagnostics')">
+                <span>🤖 ROS Diagnostics</span>
+                <span class="section-toggle">▼</span>
+            </div>
+            <div id="diagnostics-content" class="section-content">
+                <div class="ros-diagnostics-compact">
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <!-- Nodes Column -->
+                        <div style="flex: 1; min-width: 300px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(74, 158, 255, 0.1); border-left: 3px solid #4a9eff; margin-bottom: 8px;">
+                                <span style="font-weight: 600; color: #4a9eff;">Active Nodes</span>
+                                <span id="ros-nodes-count" style="background: rgba(74, 158, 255, 0.2); color: #4a9eff; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 700;">0</span>
+                            </div>
+                            <div id="ros-nodes-container" style="max-height: 200px; overflow-y: auto; font-size: 0.75em; line-height: 1.6;">
+                                <div class="text-center text-muted">Loading...</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Topics Column -->
+                        <div style="flex: 1; min-width: 300px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(74, 158, 255, 0.1); border-left: 3px solid #4a9eff; margin-bottom: 8px;">
+                                <span style="font-weight: 600; color: #4a9eff;">Active Topics</span>
+                                <span id="ros-topics-count" style="background: rgba(74, 158, 255, 0.2); color: #4a9eff; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 700;">0</span>
+                            </div>
+                            <div id="ros-topics-container" style="max-height: 200px; overflow-y: auto; font-size: 0.75em; line-height: 1.6;">
+                                <div class="text-center text-muted">Loading...</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Version Info -->
+                        <div style="width: 100%; padding: 8px 12px; background: rgba(0, 0, 0, 0.2); border-radius: 4px; text-align: center;">
+                            <span id="ros-version-display" class="text-muted" style="font-size: 0.85em;">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
     </div>
 
-    <script type="text/javascript">
-// ROS WebSocket connection
-// Updated topics to match current active topics (based on record_Salient_topics.sh)
-var ros = new ROSLIB.Ros({ url: 'ws://192.168.0.35:9090' });
-
-// GPS/Position topic - verify if this topic is still active
-var gpsListener = new ROSLIB.Topic({
-    ros: ros,
-    name: '/mavros/global_position/raw/fix',
-    messageType: 'sensor_msgs/NavSatFix'
-});
-
-// Initialize the map
-
-var map = L.map('map').setView([0, 0], 23); // Set a default view
-// Add OpenStreetMap tiles
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors'
-}).addTo(map);
-
-var pathCoordinates = [];
-var polyline = L.polyline(pathCoordinates, {color: 'blue'}).addTo(map);
-
-gpsListener.subscribe(function(message) {
-    var lat = message.latitude;
-    var lon = message.longitude;
-
-    // Update map view and path
-    var newPoint = [lat, lon];
-    pathCoordinates.push(newPoint);
-    polyline.setLatLngs(pathCoordinates);
-    map.setView(newPoint, 23); // Adjust this number for zoom level
-});
-
-// ============================================
-// AVIONICS INSTRUMENTS
-// ============================================
-
-// Get canvas contexts
-var attitudeCanvas = document.getElementById('attitude-indicator');
-var attitudeCtx = attitudeCanvas.getContext('2d');
-var headingCanvas = document.getElementById('heading-indicator');
-var headingCtx = headingCanvas.getContext('2d');
-var altitudeCanvas = document.getElementById('altitude-indicator');
-var altitudeCtx = altitudeCanvas.getContext('2d');
-
-// Current attitude values
-var currentPitch = 0;  // degrees
-var currentRoll = 0;   // degrees
-var currentHeading = 0; // degrees (0-360)
-var currentAltitude = 0; // meters
-
-// Subscribe to IMU/Attitude topic
-var imuListener = new ROSLIB.Topic({
-    ros: ros,
-    name: '/mavros/imu/data',  // or '/imu/data' depending on your setup
-    messageType: 'sensor_msgs/Imu'
-});
-
-imuListener.subscribe(function(message) {
-    // Convert quaternion to Euler angles
-    var q = message.orientation;
-    
-    // Roll (x-axis rotation)
-    var sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
-    var cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
-    currentRoll = Math.atan2(sinr_cosp, cosr_cosp) * (180 / Math.PI);
-    
-    // Pitch (y-axis rotation)
-    var sinp = 2 * (q.w * q.y - q.z * q.x);
-    if (Math.abs(sinp) >= 1)
-        currentPitch = Math.sign(sinp) * 90;
-    else
-        currentPitch = Math.asin(sinp) * (180 / Math.PI);
-    
-    // Yaw (z-axis rotation) - heading
-    var siny_cosp = 2 * (q.w * q.z + q.x * q.y);
-    var cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
-    var yaw = Math.atan2(siny_cosp, cosy_cosp) * (180 / Math.PI);
-    
-    // Convert to 0-360 range
-    currentHeading = (yaw + 360) % 360;
-    
-    // Update displays
-    document.getElementById('pitch-value').textContent = currentPitch.toFixed(1) + '°';
-    document.getElementById('roll-value').textContent = currentRoll.toFixed(1) + '°';
-    document.getElementById('heading-value').textContent = currentHeading.toFixed(1) + '°';
-});
-
-// Draw Attitude Indicator
-function drawAttitudeIndicator() {
-    var canvas = attitudeCanvas;
-    var ctx = attitudeCtx;
-    var width = canvas.width;
-    var height = canvas.height;
-    var centerX = width / 2;
-    var centerY = height / 2;
-    var radius = width / 2 - 20;
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
-    
-    // Save context
-    ctx.save();
-    
-    // Create circular clipping region
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-    ctx.clip();
-    
-    // Rotate for roll
-    ctx.translate(centerX, centerY);
-    ctx.rotate(-currentRoll * Math.PI / 180);
-    ctx.translate(-centerX, -centerY);
-    
-    // Draw sky (upper half)
-    var skyGradient = ctx.createLinearGradient(0, 0, 0, centerY);
-    skyGradient.addColorStop(0, '#1e90ff');
-    skyGradient.addColorStop(1, '#87ceeb');
-    ctx.fillStyle = skyGradient;
-    ctx.fillRect(0, 0, width, centerY + currentPitch * 3);
-    
-    // Draw ground (lower half)
-    var groundGradient = ctx.createLinearGradient(0, centerY, 0, height);
-    groundGradient.addColorStop(0, '#8b4513');
-    groundGradient.addColorStop(1, '#654321');
-    ctx.fillStyle = groundGradient;
-    ctx.fillRect(0, centerY + currentPitch * 3, width, height);
-    
-    // Draw horizon line
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, centerY + currentPitch * 3);
-    ctx.lineTo(width, centerY + currentPitch * 3);
-    ctx.stroke();
-    
-    // Draw pitch ladder
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.font = '14px monospace';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'right';
-    
-    for (var i = -90; i <= 90; i += 10) {
-        if (i === 0) continue;
-        var y = centerY + (currentPitch - i) * 3;
-        var lineWidth = (i % 30 === 0) ? 60 : 40;
-        
-        ctx.beginPath();
-        ctx.moveTo(centerX - lineWidth, y);
-        ctx.lineTo(centerX + lineWidth, y);
-        ctx.stroke();
-        
-        if (i % 30 === 0) {
-            ctx.fillText(i.toString(), centerX - lineWidth - 5, y + 5);
-            ctx.textAlign = 'left';
-            ctx.fillText(i.toString(), centerX + lineWidth + 5, y + 5);
-            ctx.textAlign = 'right';
-        }
-    }
-    
-    // Restore context
-    ctx.restore();
-    
-    // Draw aircraft symbol (fixed in center)
-    ctx.strokeStyle = '#ffff00';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
-    
-    // Center dot
-    ctx.fillStyle = '#ffff00';
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, 5, 0, 2 * Math.PI);
-    ctx.fill();
-    
-    // Wings
-    ctx.beginPath();
-    ctx.moveTo(centerX - 70, centerY);
-    ctx.lineTo(centerX - 20, centerY);
-    ctx.moveTo(centerX + 70, centerY);
-    ctx.lineTo(centerX + 20, centerY);
-    ctx.stroke();
-    
-    // Draw outer ring and markings
-    ctx.strokeStyle = '#888888';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-    ctx.stroke();
-    
-    // Draw roll indicators
-    ctx.save();
-    ctx.translate(centerX, centerY);
-    ctx.strokeStyle = '#ffffff';
-    ctx.fillStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    
-    var rollMarks = [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60];
-    for (var i = 0; i < rollMarks.length; i++) {
-        var angle = rollMarks[i] * Math.PI / 180;
-        var markLength = (rollMarks[i] % 30 === 0) ? 15 : 10;
-        
-        ctx.beginPath();
-        ctx.moveTo(0, -radius);
-        ctx.lineTo(0, -radius + markLength);
-        ctx.stroke();
-        
-        ctx.rotate(angle);
-        ctx.rotate(-angle);
-        
-        if (i < rollMarks.length - 1) {
-            ctx.rotate((rollMarks[i + 1] - rollMarks[i]) * Math.PI / 180);
-        }
-    }
-    
-    // Draw roll pointer
-    ctx.rotate(-currentRoll * Math.PI / 180);
-    ctx.fillStyle = '#ffff00';
-    ctx.beginPath();
-    ctx.moveTo(0, -radius + 5);
-    ctx.lineTo(-8, -radius + 20);
-    ctx.lineTo(8, -radius + 20);
-    ctx.closePath();
-    ctx.fill();
-    
-    ctx.restore();
-}
-
-// Draw Heading Indicator
-function drawHeadingIndicator() {
-    var canvas = headingCanvas;
-    var ctx = headingCtx;
-    var width = canvas.width;
-    var height = canvas.height;
-    var centerX = width / 2;
-    var centerY = height / 2;
-    var radius = width / 2 - 20;
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
-    
-    // Save context
-    ctx.save();
-    
-    // Draw outer circle
-    ctx.strokeStyle = '#888888';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-    ctx.stroke();
-    
-    // Draw compass rose background
-    var gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
-    gradient.addColorStop(0, '#2a2a2a');
-    gradient.addColorStop(1, '#1a1a1a');
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius - 3, 0, 2 * Math.PI);
-    ctx.fill();
-    
-    // Rotate for heading
-    ctx.translate(centerX, centerY);
-    ctx.rotate(-currentHeading * Math.PI / 180);
-    
-    // Draw cardinal directions and degree markings
-    ctx.font = 'bold 24px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    var cardinals = ['N', 'E', 'S', 'W'];
-    var cardinalColors = ['#ff0000', '#ffffff', '#ffffff', '#ffffff'];
-    
-    for (var i = 0; i < 360; i += 30) {
-        var angle = i * Math.PI / 180;
-        var x = Math.sin(angle) * (radius - 35);
-        var y = -Math.cos(angle) * (radius - 35);
-        
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(currentHeading * Math.PI / 180);
-        
-        if (i % 90 === 0) {
-            var cardinalIndex = i / 90;
-            ctx.fillStyle = cardinalColors[cardinalIndex];
-            ctx.fillText(cardinals[cardinalIndex], 0, 0);
-        } else {
-            ctx.font = '16px Arial';
-            ctx.fillStyle = '#aaaaaa';
-            ctx.fillText((i / 10).toString(), 0, 0);
-            ctx.font = 'bold 24px Arial';
-        }
-        
-        ctx.restore();
-        
-        // Draw tick marks
-        var tickLength = (i % 90 === 0) ? 20 : (i % 30 === 0) ? 15 : 10;
-        var tickWidth = (i % 90 === 0) ? 3 : 2;
-        
-        ctx.save();
-        ctx.rotate(angle);
-        ctx.strokeStyle = (i % 90 === 0) ? '#ffffff' : '#888888';
-        ctx.lineWidth = tickWidth;
-        ctx.beginPath();
-        ctx.moveTo(0, -radius + 3);
-        ctx.lineTo(0, -radius + 3 + tickLength);
-        ctx.stroke();
-        ctx.restore();
-    }
-    
-    ctx.restore();
-    
-    // Draw heading bug (fixed triangle at top)
-    ctx.fillStyle = '#ffff00';
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY - radius + 5);
-    ctx.lineTo(centerX - 10, centerY - radius + 20);
-    ctx.lineTo(centerX + 10, centerY - radius + 20);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Draw center airplane symbol
-    ctx.strokeStyle = '#ffff00';
-    ctx.lineWidth = 3;
-    ctx.fillStyle = '#ffff00';
-    
-    // Airplane body
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY - 25);
-    ctx.lineTo(centerX, centerY + 15);
-    ctx.stroke();
-    
-    // Wings
-    ctx.beginPath();
-    ctx.moveTo(centerX - 30, centerY);
-    ctx.lineTo(centerX + 30, centerY);
-    ctx.stroke();
-    
-    // Tail
-    ctx.beginPath();
-    ctx.moveTo(centerX - 10, centerY + 15);
-    ctx.lineTo(centerX + 10, centerY + 15);
-    ctx.stroke();
-}
-
-// Subscribe to Altitude topic
-var altitudeListener = new ROSLIB.Topic({
-    ros: ros,
-    name: '/mavros/global_position/rel_alt',  // Relative altitude
-    messageType: 'std_msgs/Float64'
-});
-
-altitudeListener.subscribe(function(message) {
-    currentAltitude = message.data;
-    document.getElementById('altitude-value').textContent = currentAltitude.toFixed(1) + ' m';
-});
-
-// Draw Altitude Indicator
-function drawAltitudeIndicator() {
-    var canvas = altitudeCanvas;
-    var ctx = altitudeCtx;
-    var width = canvas.width;
-    var height = canvas.height;
-    var centerX = width / 2;
-    var centerY = height / 2;
-    var radius = width / 2 - 20;
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
-    
-    // Save context
-    ctx.save();
-    
-    // Draw outer circle
-    ctx.strokeStyle = '#888888';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-    ctx.stroke();
-    
-    // Draw background
-    var gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
-    gradient.addColorStop(0, '#2a2a2a');
-    gradient.addColorStop(1, '#1a1a1a');
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius - 3, 0, 2 * Math.PI);
-    ctx.fill();
-    
-    // Draw altitude tape on the right side
-    ctx.save();
-    ctx.translate(centerX, centerY);
-    
-    // Altitude scale parameters
-    var tapeWidth = 70;
-    var tapeHeight = radius * 1.5;
-    var pixelsPerMeter = 3;  // Scale factor
-    var majorTickInterval = 50;  // Major ticks every 50m
-    var minorTickInterval = 10;  // Minor ticks every 10m
-    
-    // Create clipping region for tape
-    ctx.beginPath();
-    ctx.rect(radius - tapeWidth - 10, -tapeHeight / 2, tapeWidth, tapeHeight);
-    ctx.clip();
-    
-    // Draw altitude tape background
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(radius - tapeWidth - 10, -tapeHeight / 2, tapeWidth, tapeHeight);
-    
-    // Calculate visible altitude range
-    var altitudeOffset = currentAltitude * pixelsPerMeter;
-    var minAltitude = Math.floor((currentAltitude - tapeHeight / 2 / pixelsPerMeter) / minorTickInterval) * minorTickInterval;
-    var maxAltitude = Math.ceil((currentAltitude + tapeHeight / 2 / pixelsPerMeter) / minorTickInterval) * minorTickInterval;
-    
-    // Draw altitude markings
-    ctx.font = '14px monospace';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    
-    for (var alt = minAltitude; alt <= maxAltitude; alt += minorTickInterval) {
-        var y = -altitudeOffset + alt * pixelsPerMeter;
-        var isMajorTick = (alt % majorTickInterval === 0);
-        
-        // Draw tick mark
-        ctx.strokeStyle = isMajorTick ? '#ffffff' : '#888888';
-        ctx.lineWidth = isMajorTick ? 2 : 1;
-        ctx.beginPath();
-        var tickLength = isMajorTick ? 15 : 8;
-        ctx.moveTo(radius - tapeWidth - 10, y);
-        ctx.lineTo(radius - tapeWidth - 10 + tickLength, y);
-        ctx.stroke();
-        
-        // Draw altitude number for major ticks
-        if (isMajorTick) {
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(alt.toString(), radius - tapeWidth - 10 + tapeWidth - 5, y);
-        }
-    }
-    
-    ctx.restore();
-    
-    // Draw current altitude pointer (triangle)
-    ctx.fillStyle = '#ffff00';
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(radius - tapeWidth - 10, 0);
-    ctx.lineTo(radius - tapeWidth - 25, -12);
-    ctx.lineTo(radius - tapeWidth - 25, 12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Draw current altitude display box
-    ctx.fillStyle = '#000000';
-    ctx.strokeStyle = '#ffff00';
-    ctx.lineWidth = 2;
-    ctx.fillRect(centerX - 60, centerY - 20, 120, 40);
-    ctx.strokeRect(centerX - 60, centerY - 20, 120, 40);
-    
-    // Draw current altitude text
-    ctx.fillStyle = '#00ff00';
-    ctx.font = 'bold 20px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(currentAltitude.toFixed(0) + ' m', centerX, centerY);
-    
-    // Draw vertical speed indicator on left side
-    ctx.strokeStyle = '#888888';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-radius + 20, -tapeHeight / 2);
-    ctx.lineTo(-radius + 20, tapeHeight / 2);
-    ctx.stroke();
-    
-    // Draw zero reference line
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-radius + 15, 0);
-    ctx.lineTo(-radius + 25, 0);
-    ctx.stroke();
-    
-    // Draw unit labels
-    ctx.fillStyle = '#888888';
-    ctx.font = '12px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('ALT', 0, radius - 10);
-    ctx.fillText('(m)', 0, radius + 5);
-    
-    ctx.restore();
-}
-
-// Animation loop for instruments
-function updateInstruments() {
-    drawAttitudeIndicator();
-    drawHeadingIndicator();
-    drawAltitudeIndicator();
-    requestAnimationFrame(updateInstruments);
-}
-
-// Start instrument updates
-updateInstruments();
-
-        // Update status indicator
-        var statusElement = document.getElementById('ros-status');
-        
-        ros.on('connection', function() { 
-            console.log('Connected to websocket server.'); 
-            statusElement.textContent = 'Connected';
-            statusElement.className = 'status-indicator status-connected';
-        });
-        ros.on('error', function(error) { 
-            console.error('Error connecting to websocket server: ', error); 
-            statusElement.textContent = 'Error';
-            statusElement.className = 'status-indicator status-disconnected';
-        });
-        ros.on('close', function() { 
-            console.log('Connection to websocket server closed.'); 
-            statusElement.textContent = 'Disconnected';
-            statusElement.className = 'status-indicator status-disconnected';
-        });
-
- // Spectrometer plot code
-        // Note: Verify this topic is still active - not in default recording topics
-        var spectrometerListener = new ROSLIB.Topic({
-            ros : ros,
-            name : '/spectrometer',
-            messageType : 'std_msgs/Float64MultiArray'
-        });
-
-        var spectrometerSvg = d3.select("#spectrometer-plotting-area").append("svg")
-            .attr("width", "100%")
-            .attr("height", 400)
-            .attr("viewBox", "0 0 500 400")
-            .attr("preserveAspectRatio", "xMidYMid meet");
-
-        spectrometerListener.subscribe(function(message) {
-            try {
-                var integrationTime = message.data[0];
-                var halfLength = (message.data.length - 1) / 2;
-                var intensities = message.data.slice(1, halfLength + 1);
-                var wavelengths = message.data.slice(halfLength + 1);
-
-                var xSpectrometerScale = d3.scaleLinear().domain([d3.min(wavelengths), d3.max(wavelengths)]).range([0, 500]);
-                var ySpectrometerScale = d3.scaleLinear().domain([d3.min(intensities), d3.max(intensities)]).range([400, 0]);
-
-                // Add an x-axis with custom tick labels
-                var xAxis = d3.axisBottom(xSpectrometerScale)
-                    .tickValues(wavelengths) // Specify custom tick values
-                    .tickFormat(function(d) {
-                        return d.toFixed(2); // Format tick labels as needed
-                    });
-
-                spectrometerSvg.selectAll("*").remove();
-                spectrometerSvg.append("g")
-                    .attr("class", "x-axis")
-                    .attr("transform", "translate(0," + 400 + ")") // Move the x-axis to the bottom
-                    .call(xAxis);
-
-                spectrometerSvg.selectAll("circle")
-                    .data(wavelengths.map((w, i) => ({ wavelength: w, intensity: intensities[i] })))
-                    .enter().append("circle")
-                    .attr("cx", function(d) { return xSpectrometerScale(d.wavelength); })
-                    .attr("cy", function(d) { return ySpectrometerScale(d.intensity); })
-                    .attr("r", 2);
-            } catch (error) {
-                console.error('Error in spectrometer data handling: ', error);
-            }
-        });
-
-var odometryPositions = []; // Array to store odometry positions
-var subsampleRate = 1; // Control the subsampling rate
-
-var odometrySvg = d3.select("#odometry-plotting-area").append("svg")
-    .attr("width", "100%")
-    .attr("height", 400)
-    .attr("viewBox", "0 0 400 400")
-    .attr("preserveAspectRatio", "xMidYMid meet");
-
-// Define scales for the plot, adjust domains as per your data
-var xOdometryScale = d3.scaleLinear().domain([-10, 10]).range([0, 400]); // Example domain, adjust as needed
-var yOdometryScale = d3.scaleLinear().domain([-10, 10]).range([400, 0]); // Example domain, adjust as needed
-
-// Note: Odometry topic may need to be updated based on actual active topics
-// If /camera/pose/sample is not available, check for other odometry topics
-var odometryListener = new ROSLIB.Topic({
-    ros : ros,
-    name : '/camera/pose/sample',  // Update this if topic name has changed
-    messageType : 'nav_msgs/Odometry'
-});
-
-odometryListener.subscribe(function(message) {
-    try {
-        var x = message.pose.pose.position.x;
-        var y = message.pose.pose.position.y;
-
-        // Subsample the data
-        if (odometryPositions.length % subsampleRate === 0) {
-            odometryPositions.push({x: x, y: y});
-
-            // Append new data point to create a trail
-            odometrySvg.append("circle")
-                .attr("cx", xOdometryScale(x))
-                .attr("cy", yOdometryScale(y))
-                .attr("r", 3)
-                .attr("fill", "blue");
-        }
-    } catch (error) {
-        console.error('Error in odometry data handling: ', error);
-    }
-});
- var laserValueElement = document.getElementById("laser-value");
-
-        // Serial/Laser data topic - verify if this topic is still active
-        var serialListener = new ROSLIB.Topic({
-            ros : ros,
-            name : '/serial_data',
-            messageType : 'std_msgs/String'
-        });
-
-        var serialSvg = d3.select("#serial-plotting-area").append("svg")
-            .attr("width", "100%")
-            .attr("height", 400)
-            .attr("viewBox", "0 0 200 400")
-            .attr("preserveAspectRatio", "xMidYMid meet");
-
-        var xSerialScale = d3.scaleLinear().domain([0, 10]).range([0, 200]); // Adjust the range for horizontal squashing
-        var ySerialScale = d3.scaleLinear().domain([0, 20]).range([400, 0]);
-
-        var dataPoints = [];
-        var maxDataPoints = 50;
-
-        serialListener.subscribe(function(message) {
-            try {
-                var newData = parseFloat(message.data);
-                dataPoints.push(newData);
-                if (dataPoints.length > maxDataPoints) {
-                    dataPoints.shift();
-                }
-
-                var circles = serialSvg.selectAll("circle").data(dataPoints);
-                circles.enter().append("circle")
-                    .attr("cx", function(d, i) { return xSerialScale(i); })
-                    .attr("cy", function(d) { return ySerialScale(d); })
-                    .attr("r", 2);
-                circles.attr("cx", function(d, i) { return xSerialScale(i); })
-                    .attr("cy", function(d) { return ySerialScale(d); });
-                circles.exit().remove();
-
-                // Update the LASER Ranger value in the title
-                laserValueElement.textContent = newData;
-            } catch (error) {
-                console.error('Error in serial data handling: ', error);
-            }
-        });
-
-        // Laser Scan Visualization
-        var laserscanCanvas = document.getElementById('laserscan-canvas');
-        var laserscanCtx = laserscanCanvas.getContext('2d');
-        var laserscanPointsElement = document.getElementById('laserscan-points');
-        var laserscanRangeElement = document.getElementById('laserscan-range');
-        
-        // Set canvas size
-        function resizeLaserscanCanvas() {
-            var container = laserscanCanvas.parentElement;
-            laserscanCanvas.width = container.clientWidth - 20; // Account for padding
-            laserscanCanvas.height = 400;
-        }
-        resizeLaserscanCanvas();
-        window.addEventListener('resize', resizeLaserscanCanvas);
-        
-        // Laser scan topic - /scan is in the active topics list
-        var laserscanListener = new ROSLIB.Topic({
-            ros: ros,
-            name: '/scan',
-            messageType: 'sensor_msgs/LaserScan'
-        });
-        
-        function drawLaserscan(message) {
-            try {
-                var width = laserscanCanvas.width;
-                var height = laserscanCanvas.height;
-                var centerX = width / 2;
-                var centerY = height / 2;
-                var maxRange = message.range_max || 10.0; // Maximum range to display
-                var scale = Math.min(width, height) / 2 / maxRange; // Scale factor
-                
-                // Clear canvas with dark background
-                laserscanCtx.fillStyle = '#1a1a1a';
-                laserscanCtx.fillRect(0, 0, width, height);
-                
-                // Draw grid
-                laserscanCtx.strokeStyle = '#333';
-                laserscanCtx.lineWidth = 1;
-                for (var i = 1; i <= 5; i++) {
-                    var radius = (maxRange / 5) * i * scale;
-                    laserscanCtx.beginPath();
-                    laserscanCtx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-                    laserscanCtx.stroke();
-                }
-                
-                // Draw axes
-                laserscanCtx.strokeStyle = '#444';
-                laserscanCtx.lineWidth = 1;
-                laserscanCtx.beginPath();
-                laserscanCtx.moveTo(centerX, 0);
-                laserscanCtx.lineTo(centerX, height);
-                laserscanCtx.moveTo(0, centerY);
-                laserscanCtx.lineTo(width, centerY);
-                laserscanCtx.stroke();
-                
-                // Draw robot position (center)
-                laserscanCtx.fillStyle = '#00ff00';
-                laserscanCtx.beginPath();
-                laserscanCtx.arc(centerX, centerY, 5, 0, 2 * Math.PI);
-                laserscanCtx.fill();
-                
-                // Draw robot orientation indicator
-                laserscanCtx.strokeStyle = '#00ff00';
-                laserscanCtx.lineWidth = 2;
-                laserscanCtx.beginPath();
-                laserscanCtx.moveTo(centerX, centerY);
-                laserscanCtx.lineTo(centerX, centerY - 20);
-                laserscanCtx.stroke();
-                
-                // Draw laser scan points
-                var angleMin = message.angle_min;
-                var angleIncrement = message.angle_increment;
-                var ranges = message.ranges;
-                var validPoints = 0;
-                var maxRangeFound = 0;
-                
-                // Draw valid points
-                laserscanCtx.fillStyle = '#00ffff';
-                for (var i = 0; i < ranges.length; i++) {
-                    var range = ranges[i];
-                    
-                    // Skip invalid ranges
-                    if (isNaN(range) || range < message.range_min || range > message.range_max) {
-                        continue;
-                    }
-                    
-                    validPoints++;
-                    if (range > maxRangeFound) {
-                        maxRangeFound = range;
-                    }
-                    
-                    var angle = angleMin + i * angleIncrement;
-                    var x = centerX + Math.sin(angle) * range * scale;
-                    var y = centerY - Math.cos(angle) * range * scale;
-                    
-                    // Draw point
-                    laserscanCtx.beginPath();
-                    laserscanCtx.arc(x, y, 2, 0, 2 * Math.PI);
-                    laserscanCtx.fill();
-                    
-                    // Draw line from robot to point (optional, can be commented out for performance)
-                    laserscanCtx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
-                    laserscanCtx.lineWidth = 0.5;
-                    laserscanCtx.beginPath();
-                    laserscanCtx.moveTo(centerX, centerY);
-                    laserscanCtx.lineTo(x, y);
-                    laserscanCtx.stroke();
-                }
-                
-                // Update info display
-                laserscanPointsElement.textContent = validPoints;
-                laserscanRangeElement.textContent = maxRangeFound.toFixed(2);
-                
-            } catch (error) {
-                console.error('Error drawing laser scan: ', error);
-            }
-        }
-        
-        laserscanListener.subscribe(function(message) {
-            drawLaserscan(message);
-        });
-
-        // Velodyne Point Cloud 3D Visualization
-        var velodyneContainer = document.getElementById('velodyne-container');
-        var velodynePointsElement = document.getElementById('velodyne-points');
-        var velodyneFrameElement = document.getElementById('velodyne-frame');
-        var velodyneAutoRotate = false;
-        
-        // Initialize Three.js scene
-        var velodyneScene = new THREE.Scene();
-        velodyneScene.background = new THREE.Color(0x1a1a1a);
-        
-        // Camera
-        var velodyneCamera = new THREE.PerspectiveCamera(
-            75,
-            velodyneContainer.clientWidth / velodyneContainer.clientHeight,
-            0.1,
-            1000
-        );
-        velodyneCamera.position.set(0, 0, 50);
-        
-        // Renderer
-        var velodyneRenderer = new THREE.WebGLRenderer({ antialias: true });
-        velodyneRenderer.setSize(velodyneContainer.clientWidth, velodyneContainer.clientHeight);
-        velodyneContainer.appendChild(velodyneRenderer.domElement);
-        
-        // Lighting
-        var ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        velodyneScene.add(ambientLight);
-        var directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(50, 50, 50);
-        velodyneScene.add(directionalLight);
-        
-        // Grid helper
-        var gridHelper = new THREE.GridHelper(100, 20, 0x444444, 0x222222);
-        velodyneScene.add(gridHelper);
-        
-        // Axes helper
-        var axesHelper = new THREE.AxesHelper(10);
-        velodyneScene.add(axesHelper);
-        
-        // Point cloud geometry and material
-        var velodyneGeometry = new THREE.BufferGeometry();
-        var velodyneMaterial = new THREE.PointsMaterial({
-            color: 0x00ffff,
-            size: 0.1,
-            sizeAttenuation: true
-        });
-        var velodynePoints = new THREE.Points(velodyneGeometry, velodyneMaterial);
-        velodyneScene.add(velodynePoints);
-        
-        // Mouse controls
-        var mouseDown = false;
-        var mouseX = 0;
-        var mouseY = 0;
-        var cameraRotationX = 0;
-        var cameraRotationY = 0;
-        
-        velodyneRenderer.domElement.addEventListener('mousedown', function(e) {
-            mouseDown = true;
-            mouseX = e.clientX;
-            mouseY = e.clientY;
-        });
-        
-        velodyneRenderer.domElement.addEventListener('mousemove', function(e) {
-            if (mouseDown) {
-                var deltaX = e.clientX - mouseX;
-                var deltaY = e.clientY - mouseY;
-                
-                cameraRotationY += deltaX * 0.01;
-                cameraRotationX += deltaY * 0.01;
-                
-                var radius = 50;
-                velodyneCamera.position.x = radius * Math.sin(cameraRotationY) * Math.cos(cameraRotationX);
-                velodyneCamera.position.y = radius * Math.sin(cameraRotationX);
-                velodyneCamera.position.z = radius * Math.cos(cameraRotationY) * Math.cos(cameraRotationX);
-                velodyneCamera.lookAt(0, 0, 0);
-                
-                mouseX = e.clientX;
-                mouseY = e.clientY;
-            }
-        });
-        
-        velodyneRenderer.domElement.addEventListener('mouseup', function() {
-            mouseDown = false;
-        });
-        
-        velodyneRenderer.domElement.addEventListener('wheel', function(e) {
-            e.preventDefault();
-            var radius = Math.sqrt(
-                velodyneCamera.position.x * velodyneCamera.position.x +
-                velodyneCamera.position.y * velodyneCamera.position.y +
-                velodyneCamera.position.z * velodyneCamera.position.z
-            );
-            radius += e.deltaY * 0.1;
-            radius = Math.max(10, Math.min(200, radius));
-            
-            var normalized = new THREE.Vector3(
-                velodyneCamera.position.x,
-                velodyneCamera.position.y,
-                velodyneCamera.position.z
-            ).normalize();
-            
-            velodyneCamera.position.set(
-                normalized.x * radius,
-                normalized.y * radius,
-                normalized.z * radius
-            );
-        });
-        
-        // Right-click pan
-        velodyneRenderer.domElement.addEventListener('contextmenu', function(e) {
-            e.preventDefault();
-        });
-        
-        var rightMouseDown = false;
-        var rightMouseX = 0;
-        var rightMouseY = 0;
-        var panX = 0;
-        var panY = 0;
-        
-        velodyneRenderer.domElement.addEventListener('mousedown', function(e) {
-            if (e.button === 2) {
-                rightMouseDown = true;
-                rightMouseX = e.clientX;
-                rightMouseY = e.clientY;
-            }
-        });
-        
-        velodyneRenderer.domElement.addEventListener('mousemove', function(e) {
-            if (rightMouseDown) {
-                var deltaX = e.clientX - rightMouseX;
-                var deltaY = e.clientY - rightMouseY;
-                
-                panX += deltaX * 0.1;
-                panY -= deltaY * 0.1;
-                
-                velodyneCamera.position.x += (deltaX * 0.1);
-                velodyneCamera.position.y -= (deltaY * 0.1);
-                
-                rightMouseX = e.clientX;
-                rightMouseY = e.clientY;
-            }
-        });
-        
-        velodyneRenderer.domElement.addEventListener('mouseup', function(e) {
-            if (e.button === 2) {
-                rightMouseDown = false;
-            }
-        });
-        
-        // Handle window resize
-        window.addEventListener('resize', function() {
-            velodyneCamera.aspect = velodyneContainer.clientWidth / velodyneContainer.clientHeight;
-            velodyneCamera.updateProjectionMatrix();
-            velodyneRenderer.setSize(velodyneContainer.clientWidth, velodyneContainer.clientHeight);
-        });
-        
-        // Animation loop
-        var velodyneRotationAngle = 0;
-        function animateVelodyne() {
-            requestAnimationFrame(animateVelodyne);
-            
-            if (velodyneAutoRotate) {
-                velodyneRotationAngle += 0.01;
-                var radius = 50;
-                velodyneCamera.position.x = radius * Math.sin(velodyneRotationAngle);
-                velodyneCamera.position.z = radius * Math.cos(velodyneRotationAngle);
-                velodyneCamera.position.y = 20;
-                velodyneCamera.lookAt(0, 0, 0);
-            }
-            
-            velodyneRenderer.render(velodyneScene, velodyneCamera);
-        }
-        animateVelodyne();
-        
-        // Velodyne topic subscription
-        // Note: The frame_id in the PointCloud2 message header should be 'velodyne'
-        // This is set by the Velodyne driver node (typically in the launch file configuration)
-        var velodyneListener = new ROSLIB.Topic({
-            ros: ros,
-            name: '/velodyne_points',
-            messageType: 'sensor_msgs/PointCloud2'
-        });
-        
-        function updateVelodynePointCloud(message) {
-            try {
-                // Validate and display frame_id - ensure it's 'velodyne'
-                // The frame_id determines the coordinate frame for transform operations
-                var frameId = message.header ? message.header.frame_id : 'unknown';
-                velodyneFrameElement.textContent = frameId;
-                
-                // Validate frame_id is 'velodyne' (required for proper transform handling)
-                if (frameId !== 'velodyne') {
-                    console.warn('Velodyne point cloud frame_id is "' + frameId + '" but expected "velodyne". ' +
-                                 'Update the Velodyne driver launch file to set frame_id="velodyne"');
-                    velodyneFrameElement.style.color = '#ff6b6b'; // Red color for warning
-                } else {
-                    velodyneFrameElement.style.color = '#4caf50'; // Green color for correct
-                }
-                
-                // Parse PointCloud2 message
-                var points = [];
-                var pointCount = message.width * message.height;
-                
-                if (pointCount === 0) {
-                    return;
-                }
-                
-                // Find x, y, z field indices
-                var xIdx = -1, yIdx = -1, zIdx = -1, rgbIdx = -1;
-                for (var i = 0; i < message.fields.length; i++) {
-                    if (message.fields[i].name === 'x') xIdx = i;
-                    if (message.fields[i].name === 'y') yIdx = i;
-                    if (message.fields[i].name === 'z') zIdx = i;
-                    if (message.fields[i].name === 'rgb' || message.fields[i].name === 'intensity') rgbIdx = i;
-                }
-                
-                if (xIdx === -1 || yIdx === -1 || zIdx === -1) {
-                    console.warn('PointCloud2 missing required fields (x, y, z)');
-                    return;
-                }
-                
-                var pointStep = message.point_step;
-                var dataView = new DataView(message.data.buffer);
-                
-                // Parse points
-                for (var i = 0; i < pointCount; i++) {
-                    var offset = i * pointStep;
-                    
-                    var x = dataView.getFloat32(offset + message.fields[xIdx].offset, true);
-                    var y = dataView.getFloat32(offset + message.fields[yIdx].offset, true);
-                    var z = dataView.getFloat32(offset + message.fields[zIdx].offset, true);
-                    
-                    // Skip invalid points
-                    if (isNaN(x) || isNaN(y) || isNaN(z) || 
-                        !isFinite(x) || !isFinite(y) || !isFinite(z)) {
-                        continue;
-                    }
-                    
-                    points.push(x, y, z);
-                }
-                
-                // Update geometry
-                if (points.length > 0) {
-                    velodyneGeometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-                    velodyneGeometry.computeBoundingSphere();
-                    velodynePointsElement.textContent = (points.length / 3).toLocaleString();
-                }
-                
-            } catch (error) {
-                console.error('Error processing Velodyne point cloud: ', error);
-            }
-        }
-        
-        velodyneListener.subscribe(function(message) {
-            updateVelodynePointCloud(message);
-        });
-        
-        // Control functions
-        function resetVelodyneView() {
-            velodyneCamera.position.set(0, 0, 50);
-            velodyneCamera.lookAt(0, 0, 0);
-            cameraRotationX = 0;
-            cameraRotationY = 0;
-        }
-        
-        function toggleVelodyneAutoRotate() {
-            velodyneAutoRotate = !velodyneAutoRotate;
-            document.getElementById('auto-rotate-status').textContent = velodyneAutoRotate ? 'On' : 'Off';
-        }
-        
-        // Disk Space Widget Update Function
-        function updateDiskSpace() {
-            fetch('/api/disk-space/')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'ok') {
-                        // Update text values
-                        document.getElementById('disk-used').textContent = data.used_gb + ' GB';
-                        document.getElementById('disk-free').textContent = data.free_gb + ' GB';
-                        document.getElementById('disk-total').textContent = data.total_gb + ' GB';
-                        
-                        // Update progress bar (vertical)
-                        var diskBar = document.getElementById('disk-space-bar');
-                        diskBar.style.height = data.used_percent + '%';
-                        
-                        // Update color based on usage
-                        diskBar.className = 'disk-space-bar';
-                        if (data.used_percent < 70) {
-                            diskBar.classList.add('low');
-                        } else if (data.used_percent < 90) {
-                            diskBar.classList.add('medium');
-                        } else {
-                            diskBar.classList.add('high');
-                        }
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching disk space:', error);
-                    document.getElementById('disk-used').textContent = 'Error';
-                    document.getElementById('disk-free').textContent = 'Error';
-                    document.getElementById('disk-total').textContent = 'Error';
-                });
-        }
-        
-        // Update disk space immediately and then every 10 seconds
-        updateDiskSpace();
-        setInterval(updateDiskSpace, 10000);
-        
-        // Recording Control Functions
-        function startRecording() {
-            var startBtn = document.getElementById('start-recording-btn');
-            var stopBtn = document.getElementById('stop-recording-btn');
-            
-            startBtn.disabled = true;
-            
-            fetch('/api/recording/start/', {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': getCookie('csrftoken')
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'ok') {
-                    console.log('Recording started:', data.message);
-                    updateRecordingUI(true);
-                    alert('Recording started!\nOutput: ' + data.output_file);
-                } else {
-                    alert('Error starting recording: ' + data.message);
-                    startBtn.disabled = false;
-                }
-            })
-            .catch(error => {
-                console.error('Error starting recording:', error);
-                alert('Failed to start recording: ' + error);
-                startBtn.disabled = false;
-            });
-        }
-        
-        function stopRecording() {
-            var stopBtn = document.getElementById('stop-recording-btn');
-            stopBtn.disabled = true;
-            
-            fetch('/api/recording/stop/', {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': getCookie('csrftoken')
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'ok') {
-                    console.log('Recording stopped:', data.message);
-                    updateRecordingUI(false);
-                    alert('Recording stopped!\nSaved to: ' + data.output_file);
-                } else {
-                    alert('Error stopping recording: ' + data.message);
-                    stopBtn.disabled = false;
-                }
-            })
-            .catch(error => {
-                console.error('Error stopping recording:', error);
-                alert('Failed to stop recording: ' + error);
-                stopBtn.disabled = false;
-            });
-        }
-        
-        function updateRecordingStatus() {
-            fetch('/api/recording/status/')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'ok') {
-                        updateRecordingUI(data.recording);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching recording status:', error);
-                });
-        }
-        
-        function updateRecordingUI(isRecording) {
-            var startBtn = document.getElementById('start-recording-btn');
-            var stopBtn = document.getElementById('stop-recording-btn');
-            var statusElement = document.getElementById('recording-status');
-            var indicator = document.getElementById('recording-indicator');
-            
-            if (isRecording) {
-                startBtn.disabled = true;
-                stopBtn.disabled = false;
-                statusElement.textContent = 'Recording';
-                statusElement.className = 'recording-status active';
-                indicator.className = 'recording-indicator recording';
-            } else {
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
-                statusElement.textContent = 'Idle';
-                statusElement.className = 'recording-status idle';
-                indicator.className = 'recording-indicator';
-            }
-        }
-        
-        // Helper function to get CSRF token
-        function getCookie(name) {
-            // First try to get from meta tag
-            if (name === 'csrftoken') {
-                const metaToken = document.querySelector('meta[name="csrf-token"]');
-                if (metaToken) {
-                    return metaToken.getAttribute('content');
-                }
-            }
-            
-            // Fallback to cookie
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
-        }
-        
-        // Update recording status immediately and then every 5 seconds
-        updateRecordingStatus();
-        setInterval(updateRecordingStatus, 5000);
+    <!-- JavaScript Configuration (from Django) -->
+    <script>
+        // Configuration passed from backend with environment variables
+        window.VCS_BACKEND_CONFIG = {
+            rosbridge_url: '{{ ros_bridge_url }}',
+            video_server_url: '{{ video_server_url }}'
+        };
     </script>
+    
+    <!-- JavaScript -->
+    <script src="/static/vehicle-control-station/vcs-app.js"></script>
 </body>
 </html>
+
