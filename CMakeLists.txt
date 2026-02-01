@@ -67,6 +67,7 @@ install(PROGRAMS
   scripts/hydra_sdr/spectrum_analyzer_node.py
   scripts/hydra_sdr/soapy_sdr_node.py
   scripts/hydra_sdr/sdr_visualizer.py
+  scripts/hydra_sdr/adsb_decoder_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

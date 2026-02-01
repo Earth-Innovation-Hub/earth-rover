@@ -192,6 +192,7 @@ class SDRVisualizerNode(Node):
         spectrum_widget.setLabel('left', 'Power', units='dB')
         spectrum_widget.setLabel('bottom', 'Frequency', units='MHz')
         spectrum_widget.showGrid(x=True, y=True, alpha=0.3)
+        self.spectrum_widget = spectrum_widget  # Store widget reference for adding items
         self.spectrum_plot = spectrum_widget.plot([], [], pen='y', name='Spectrum')
         self.peak_markers = []
         layout.addWidget(spectrum_widget, stretch=2)
@@ -309,14 +310,14 @@ class SDRVisualizerNode(Node):
                 
                 # Clear old markers
                 for marker in self.peak_markers:
-                    self.spectrum_plot.scene().removeItem(marker)
+                    self.spectrum_widget.removeItem(marker)
                 self.peak_markers.clear()
                 
                 # Add new markers for top 5 peaks
                 peaks.sort(key=lambda x: x[1], reverse=True)
                 for freq, power in peaks[:5]:
                     marker = pg.InfiniteLine(pos=freq, angle=90, pen='r', movable=False)
-                    self.spectrum_plot.addItem(marker)
+                    self.spectrum_widget.addItem(marker)  # Add to widget, not plot item
                     self.peak_markers.append(marker)
         
         # Update waterfall (only if new data)
