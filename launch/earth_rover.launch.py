@@ -439,15 +439,15 @@ def launch_setup(context, *args, **kwargs):
     if enable_sdr:
         try:
             hydra_sdr_node = Node(
-                package='hydra_sdr_driver',
+                package='deepgis_vehicles',
                 executable='hydra_sdr_node.py',
                 name='hydra_sdr_node',
                 namespace='hydra_sdr',
                 parameters=[{
                     'auto_connect': True,
-                    'auto_stream': False,
+                    'auto_stream': True,  # Auto-start streaming when SDR is enabled
                     'center_frequency': 433.0e6,
-                    'sample_rate': 2.4e6,
+                    'sample_rate': 2.5e6,
                 }],
                 output='screen',
                 respawn=True,

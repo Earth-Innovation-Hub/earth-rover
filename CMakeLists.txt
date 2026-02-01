@@ -54,11 +54,19 @@ install(DIRECTORY config
   DESTINATION share/${PROJECT_NAME}/
 )
 
-# Install scripts
+# Install scripts (note: telemetry/gps publishers now in deepgis_vehicles subpackage)
 install(PROGRAMS 
   scripts/connect_pixhawk.sh
-  scripts/deepgis_telemetry_publisher.py
   scripts/test_gps_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# Install HydraSDR nodes
+install(PROGRAMS 
+  scripts/hydra_sdr/hydra_sdr_node.py
+  scripts/hydra_sdr/spectrum_analyzer_node.py
+  scripts/hydra_sdr/soapy_sdr_node.py
+  scripts/hydra_sdr/sdr_visualizer.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
