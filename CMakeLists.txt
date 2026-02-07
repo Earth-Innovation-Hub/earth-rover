@@ -54,10 +54,11 @@ install(DIRECTORY config
   DESTINATION share/${PROJECT_NAME}/
 )
 
-# Install scripts (note: telemetry/gps publishers now in deepgis_vehicles subpackage)
+# Install scripts
 install(PROGRAMS 
   scripts/connect_pixhawk.sh
   scripts/test_gps_publisher.py
+  scripts/deepgis_telemetry_publisher.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -65,16 +66,24 @@ install(PROGRAMS
 install(PROGRAMS 
   scripts/hydra_sdr/hydra_sdr_node.py
   scripts/hydra_sdr/spectrum_analyzer_node.py
-  scripts/hydra_sdr/soapy_sdr_node.py
   scripts/hydra_sdr/sdr_visualizer.py
   scripts/hydra_sdr/adsb_decoder_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install header files
-install(DIRECTORY include/
-  DESTINATION include
+# Install RTL-SDR V4 nodes
+install(PROGRAMS 
+  scripts/rtl_sdr/rtl_sdr_node.py
+  scripts/rtl_sdr/rtl_adsb_decoder_node.py
+  DESTINATION lib/${PROJECT_NAME}
 )
+
+# Install header files (only if include/ directory exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  install(DIRECTORY include/
+    DESTINATION include
+  )
+endif()
 
 # Export dependencies
 ament_export_dependencies(

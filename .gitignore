@@ -1,0 +1,24 @@
+# Build artifacts
+build/
+install/
+log/
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# SDR installer build directories (cloned repos + compiled tools)
+scripts/rtl_sdr/.build/
+scripts/hydra_sdr/.build/
+
+# OS
+.DS_Store
+Thumbs.db

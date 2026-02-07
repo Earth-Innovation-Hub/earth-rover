@@ -16,6 +16,8 @@
   <depend>sensor_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>rcl_interfaces</depend>
   <depend>mavros</depend>
   <depend>mavros_msgs</depend>
   <depend>mavros_extras</depend>
