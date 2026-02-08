@@ -62,6 +62,12 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# Install shared SDR/ADS-B module (used by both HydraSDR and RTL-SDR decoders)
+install(PROGRAMS
+  scripts/sdr_adsb_common.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # Install HydraSDR nodes
 install(PROGRAMS 
   scripts/hydra_sdr/hydra_sdr_node.py
