@@ -602,13 +602,15 @@ def estimate_receiver_position(
 ) -> Optional[dict]:
     """Estimate receiver position from tracked ADS-B aircraft.
 
-    Phase-2 estimator:
-      1) Build base weights from altitude and sample age
-      2) Project aircraft positions into local ENU plane
-      3) Run robust IRLS centroid (Huber-style down-weighting)
-      4) Compute covariance/uncertainty and confidence
+    Simplified first-principles model:
+      1) Low-altitude aircraft constrain receiver location more strongly
+         (shorter radio horizon), so weight by 1/sqrt(altitude + floor).
+      2) Fresh samples are more trustworthy, so apply exponential age decay.
+      3) Compute weighted centroid in local ENU meters.
+      4) Reject obvious outliers with a robust MAD distance gate.
+      5) Recompute weighted centroid and covariance using inliers only.
 
-    Returns a dict suitable for JSON publishing, or None if not enough data.
+    Returns a dict suitable for JSON publishing, or None if insufficient data.
     """
     now = time.time()
     with tracker.lock:
@@ -643,7 +645,7 @@ def estimate_receiver_position(
     lats = np.array([s['lat'] for s in samples], dtype=np.float64)
     lons = np.array([s['lon'] for s in samples], dtype=np.float64)
 
-    # Seed point for local ENU projection (weighted geographic mean)
+    # Seed point for local ENU projection (weighted geographic mean).
     lat0 = float(np.sum(w0 * lats) / np.sum(w0))
     lon0 = float(np.sum(w0 * lons) / np.sum(w0))
 
@@ -653,40 +655,44 @@ def estimate_receiver_position(
     x = earth_r * np.cos(lat0_rad) * np.radians(lons - lon0)  # east
     y = earth_r * np.radians(lats - lat0)                      # north
 
-    # Initial weighted centroid in ENU.
+    # First-pass weighted centroid in ENU.
     mx = float(np.sum(w0 * x) / np.sum(w0))
     my = float(np.sum(w0 * y) / np.sum(w0))
 
-    # Robust IRLS (Huber-style) against distant/outlier aircraft.
-    eps = 1e-9
-    robust_w = np.ones_like(w0)
-    for _ in range(6):
-        dx = x - mx
-        dy = y - my
-        r = np.sqrt(dx * dx + dy * dy)
-        scale = float(np.median(r) + 1.0)   # robust scale, avoid zero
-        k = 1.5 * scale                      # Huber threshold
-        robust_w = np.where(r <= k, 1.0, k / (r + eps))
-        w = w0 * robust_w
-        sw = float(np.sum(w))
-        if sw <= 0.0:
-            break
-        mx = float(np.sum(w * x) / sw)
-        my = float(np.sum(w * y) / sw)
+    # Outlier gate (single robust pass): median + 2.5 * MAD.
+    dx0 = x - mx
+    dy0 = y - my
+    r0 = np.sqrt(dx0 * dx0 + dy0 * dy0)
+    med_r = float(np.median(r0))
+    mad_r = float(np.median(np.abs(r0 - med_r))) + 1.0
+    gate = med_r + 2.5 * mad_r
+    inlier_mask = r0 <= gate
 
-    # Final weights/stats.
-    w = w0 * robust_w
-    sw = float(np.sum(w))
+    # If gating is too aggressive, fall back to all points.
+    if int(np.sum(inlier_mask)) < min_aircraft:
+        inlier_mask = np.ones_like(r0, dtype=bool)
+
+    rejected = int(np.sum(~inlier_mask))
+    x_in = x[inlier_mask]
+    y_in = y[inlier_mask]
+    w_in = w0[inlier_mask]
+    if len(x_in) < min_aircraft:
+        return None
+
+    sw = float(np.sum(w_in))
     if sw <= 0.0:
         return None
-    dx = x - mx
-    dy = y - my
-    r = np.sqrt(dx * dx + dy * dy)
+
+    # Second-pass centroid from inliers only.
+    mx = float(np.sum(w_in * x_in) / sw)
+    my = float(np.sum(w_in * y_in) / sw)
+    dx = x_in - mx
+    dy = y_in - my
 
     # Weighted covariance in ENU.
-    cov_xx = float(np.sum(w * dx * dx) / sw)
-    cov_xy = float(np.sum(w * dx * dy) / sw)
-    cov_yy = float(np.sum(w * dy * dy) / sw)
+    cov_xx = float(np.sum(w_in * dx * dx) / sw)
+    cov_xy = float(np.sum(w_in * dx * dy) / sw)
+    cov_yy = float(np.sum(w_in * dy * dy) / sw)
     cov = np.array([[cov_xx, cov_xy], [cov_xy, cov_yy]], dtype=np.float64)
     eigvals = np.linalg.eigvalsh(cov)
     eigvals = np.maximum(eigvals, 0.0)
@@ -697,19 +703,31 @@ def estimate_receiver_position(
     est_lat = lat0 + math.degrees(my / earth_r)
     est_lon = lon0 + math.degrees(mx / (earth_r * max(1e-9, math.cos(lat0_rad))))
 
-    n = len(samples)
-    low_alt_count = sum(1 for s in samples if s['alt_ft'] < 15000.0)
+    n = len(x_in)
+    low_alt_count = sum(
+        1 for i, s in enumerate(samples) if inlier_mask[i] and s['alt_ft'] < 15000.0
+    )
     median_age = float(np.median(np.array([s['age_s'] for s in samples])))
-    rejected = int(np.sum(robust_w < 0.2))
 
     # Confidence combines:
     #   - aircraft count
     #   - low-altitude coverage
     #   - geometric compactness (smaller covariance => higher confidence)
+    #   - inlier ratio after outlier gate
     count_factor = min(n / 20.0, 1.0)
     low_alt_factor = min(low_alt_count / 6.0, 1.0)
     compactness = math.exp(-sigma_major_m / 40000.0)  # ~1 near tight cluster, decays with spread
-    confidence = max(0.0, min(1.0, 0.35 * count_factor + 0.35 * low_alt_factor + 0.30 * compactness))
+    inlier_ratio = n / max(1, len(samples))
+    confidence = max(
+        0.0,
+        min(
+            1.0,
+            0.30 * count_factor
+            + 0.30 * low_alt_factor
+            + 0.25 * compactness
+            + 0.15 * inlier_ratio,
+        ),
+    )
 
     # Uncertainty radius for map display (~2-sigma major axis + confidence penalty)
     est_radius_km = (2.0 * sigma_major_m) / 1000.0 + (1.0 - confidence) * 20.0

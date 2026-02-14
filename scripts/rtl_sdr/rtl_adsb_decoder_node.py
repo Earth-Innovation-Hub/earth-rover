@@ -80,6 +80,9 @@ class RTLADSBDecoderNode(Node):
         self.declare_parameter('max_aircraft', 200)
         self.declare_parameter('aircraft_timeout', 60.0)
         self.declare_parameter('debug', False)
+        self.declare_parameter('reference_gps_topic', '/mavros/global_position/raw/fix')
+        self.declare_parameter('kf_process_accel_mps2', 1.5)
+        self.declare_parameter('kf_innovation_gate', 9.21)  # chi2(2 dof, 99%)
 
         self.mode = self.get_parameter('mode').value
         self.dump1090_path = self.get_parameter('dump1090_path').value
@@ -91,6 +94,11 @@ class RTLADSBDecoderNode(Node):
         max_aircraft = self.get_parameter('max_aircraft').value
         timeout = self.get_parameter('aircraft_timeout').value
         self.debug = self.get_parameter('debug').value
+        self.reference_gps_topic = self.get_parameter('reference_gps_topic').value
+        self.kf_process_accel_mps2 = float(
+            self.get_parameter('kf_process_accel_mps2').value)
+        self.kf_innovation_gate = float(
+            self.get_parameter('kf_innovation_gate').value)
 
         # ====================================================================
         # Shared components
@@ -119,6 +127,12 @@ class RTLADSBDecoderNode(Node):
         self._kf_x = np.zeros((4, 1), dtype=np.float64)   # [x, y, vx, vy]
         self._kf_P = np.eye(4, dtype=np.float64) * 1e6
         self._kf_last_t = None
+        self._kf_nis_window = deque(maxlen=120)
+        self._kf_reject_window = deque(maxlen=120)
+        self._reference_lat = None
+        self._reference_lon = None
+        self._raw_err_window_m = deque(maxlen=120)
+        self._kf_err_window_m = deque(maxlen=120)
 
         # ====================================================================
         # Publishers
@@ -129,6 +143,8 @@ class RTLADSBDecoderNode(Node):
             String, '~/aircraft_list', 10)
         self.estimated_pos_pub = self.create_publisher(
             String, '~/estimated_position', 10)
+        self.reference_gps_sub = self.create_subscription(
+            NavSatFix, self.reference_gps_topic, self._reference_gps_callback, 10)
         if self.publish_raw:
             self.raw_msg_pub = self.create_publisher(String, '~/messages', 10)
 
@@ -184,6 +200,7 @@ class RTLADSBDecoderNode(Node):
         self.get_logger().info(f'  Device Index: {self.device_index}')
         self.get_logger().info(
             f'  Gain: {"auto" if self.gain < 0 else f"{self.gain:.1f} dB"}')
+        self.get_logger().info(f'  Reference GPS Topic: {self.reference_gps_topic}')
 
     # ====================================================================
     # dump1090 Mode
@@ -530,6 +547,28 @@ class RTLADSBDecoderNode(Node):
                     publish_aircraft_navsatfix(
                         ac, self.get_clock(), self.aircraft_pub)
 
+    def _reference_gps_callback(self, msg: NavSatFix):
+        """Cache reference rover GPS position for estimator diagnostics."""
+        lat = float(msg.latitude)
+        lon = float(msg.longitude)
+        if lat == 0.0 and lon == 0.0:
+            return
+        self._reference_lat = lat
+        self._reference_lon = lon
+
+    @staticmethod
+    def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Great-circle distance (meters) between two lat/lon points."""
+        r = 6371000.0
+        p1 = math.radians(lat1)
+        p2 = math.radians(lat2)
+        dp = math.radians(lat2 - lat1)
+        dl = math.radians(lon2 - lon1)
+        a = (math.sin(dp / 2.0) ** 2
+             + math.cos(p1) * math.cos(p2) * math.sin(dl / 2.0) ** 2)
+        c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(1e-12, 1.0 - a)))
+        return r * c
+
     def _estimate_position_callback(self):
         """Estimate receiver position from the aircraft constellation."""
         import json
@@ -545,7 +584,7 @@ class RTLADSBDecoderNode(Node):
         if meas_sigma_km is None:
             # Fallback if only radius is available.
             meas_sigma_km = max(1.0, float(result.get('est_radius_km', 20.0)) * 0.5)
-        kf_lat, kf_lon, kf_radius_km = self._kf_update_receiver_position(
+        kf_lat, kf_lon, kf_radius_km, kf_nis, kf_accepted = self._kf_update_receiver_position(
             raw_lat, raw_lon, float(meas_sigma_km) * 1000.0)
 
         result['raw_lat'] = round(raw_lat, 6)
@@ -553,6 +592,38 @@ class RTLADSBDecoderNode(Node):
         result['kf_lat'] = round(kf_lat, 6)
         result['kf_lon'] = round(kf_lon, 6)
         result['kf_radius_km'] = round(kf_radius_km, 2)
+        result['kf_nis'] = round(float(kf_nis), 3)
+        result['kf_update_accepted'] = bool(kf_accepted)
+        result['kf_gate_threshold'] = self.kf_innovation_gate
+
+        # Rolling KF health metrics.
+        self._kf_nis_window.append(float(kf_nis))
+        self._kf_reject_window.append(0 if kf_accepted else 1)
+        kf_updates_window = len(self._kf_reject_window)
+        kf_rejected_window = int(sum(self._kf_reject_window))
+        kf_reject_ratio = (
+            float(kf_rejected_window) / float(kf_updates_window)
+            if kf_updates_window > 0 else 0.0
+        )
+        result['kf_updates_window'] = int(kf_updates_window)
+        result['kf_rejected_window'] = int(kf_rejected_window)
+        result['kf_reject_ratio'] = round(kf_reject_ratio, 3)
+        if len(self._kf_nis_window) > 0:
+            result['kf_nis_median'] = round(float(np.median(self._kf_nis_window)), 3)
+
+        # Compare raw/KF estimates against rover GPS reference (if available).
+        if self._reference_lat is not None and self._reference_lon is not None:
+            raw_err_m = self._haversine_m(
+                raw_lat, raw_lon, self._reference_lat, self._reference_lon)
+            kf_err_m = self._haversine_m(
+                kf_lat, kf_lon, self._reference_lat, self._reference_lon)
+            self._raw_err_window_m.append(raw_err_m)
+            self._kf_err_window_m.append(kf_err_m)
+            result['raw_error_m'] = round(raw_err_m, 1)
+            result['kf_error_m'] = round(kf_err_m, 1)
+            result['raw_error_med_m'] = round(float(np.median(self._raw_err_window_m)), 1)
+            result['kf_error_med_m'] = round(float(np.median(self._kf_err_window_m)), 1)
+
         # Keep compatibility for existing consumers (map reads lat/lon).
         result['lat'] = result['kf_lat']
         result['lon'] = result['kf_lon']
@@ -571,7 +642,9 @@ class RTLADSBDecoderNode(Node):
         self.get_logger().info(
             f'[EST] Receiver position: ({est_lat:.5f}, {est_lon:.5f}) '
             f'from {count} aircraft, confidence={confidence:.0%}, '
-            f'radius~{radius_km:.1f}km')
+            f'radius~{radius_km:.1f}km, '
+            f'NIS={result.get("kf_nis", 0.0):.2f}, '
+            f'accepted={result.get("kf_update_accepted", True)}')
 
     def _kf_latlon_to_xy(self, lat: float, lon: float) -> tuple:
         """Convert lat/lon to local ENU meters around filter reference."""
@@ -600,7 +673,7 @@ class RTLADSBDecoderNode(Node):
         """Constant-velocity 2D Kalman update for receiver estimate.
 
         Returns:
-            (kf_lat, kf_lon, kf_radius_km)
+            (kf_lat, kf_lon, kf_radius_km, nis, update_accepted)
         """
         now_t = time.time()
         mx, my = self._kf_latlon_to_xy(meas_lat, meas_lon)
@@ -612,7 +685,7 @@ class RTLADSBDecoderNode(Node):
             self._kf_last_t = now_t
             self._kf_initialized = True
             lat, lon = self._kf_xy_to_latlon(mx, my)
-            return lat, lon, max(1.0, 2.0 * meas_sigma_m / 1000.0)
+            return lat, lon, max(1.0, 2.0 * meas_sigma_m / 1000.0), 0.0, True
 
         dt = max(0.1, min(30.0, now_t - (self._kf_last_t or now_t)))
         self._kf_last_t = now_t
@@ -626,7 +699,7 @@ class RTLADSBDecoderNode(Node):
         ], dtype=np.float64)
 
         # Process noise: white acceleration model
-        q_acc = 1.5  # m/s^2
+        q_acc = max(0.01, self.kf_process_accel_mps2)  # m/s^2
         q = q_acc * q_acc
         dt2 = dt * dt
         dt3 = dt2 * dt
@@ -652,10 +725,21 @@ class RTLADSBDecoderNode(Node):
         z = np.array([[mx], [my]], dtype=np.float64)
         y = z - (H @ self._kf_x)
         S = H @ self._kf_P @ H.T + R
-        K = self._kf_P @ H.T @ np.linalg.inv(S)
-        self._kf_x = self._kf_x + (K @ y)
         I = np.eye(4, dtype=np.float64)
-        self._kf_P = (I - K @ H) @ self._kf_P
+        S_inv = np.linalg.inv(S)
+        nis = float((y.T @ S_inv @ y)[0, 0])
+
+        # Innovation gating: reject implausible measurement jumps.
+        update_accepted = nis <= self.kf_innovation_gate
+        if update_accepted:
+            K = self._kf_P @ H.T @ S_inv
+            self._kf_x = self._kf_x + (K @ y)
+            # Joseph stabilized covariance update.
+            I_KH = I - (K @ H)
+            self._kf_P = I_KH @ self._kf_P @ I_KH.T + K @ R @ K.T
+        else:
+            # Prediction-only step when innovation is too large.
+            pass
 
         fx = float(self._kf_x[0, 0])
         fy = float(self._kf_x[1, 0])
@@ -665,7 +749,7 @@ class RTLADSBDecoderNode(Node):
         evals = np.linalg.eigvalsh(pos_cov)
         sigma_major_m = math.sqrt(max(float(evals[-1]), 0.0))
         kf_radius_km = max(1.0, (2.0 * sigma_major_m) / 1000.0)
-        return kf_lat, kf_lon, kf_radius_km
+        return kf_lat, kf_lon, kf_radius_km, nis, update_accepted
 
     # ====================================================================
     # Cleanup
