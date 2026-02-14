@@ -112,7 +112,7 @@
                 <span class="section-toggle">▼</span>
             </div>
             <div id="cameras-content" class="section-content">
-                <div class="grid grid-3 grid-compact">
+                <div class="grid grid-compact">
                     <!-- Left Stereo Camera -->
                     <div class="card camera-card">
                         <h2>Left Stereo Camera</h2>
@@ -154,16 +154,52 @@
                         </div>
                         <div id="right-stereo-status" class="camera-status paused">Paused</div>
                     </div>
-                    
-                    <!-- GPS Map -->
-                    <div class="card">
-                        <h2>GPS Navigation</h2>
-                        <div id="map"></div>
-                    </div>
                 </div>
             </div>
         </div>
         
+        <!-- ============================================
+             ADS-B AIRCRAFT TRACKING
+             ============================================ -->
+        <div class="section">
+            <div class="section-title" onclick="toggleSection('aircraft')">
+                <span>
+                    <span style="margin-right: 4px;">&#9992;</span> ADS-B Aircraft Tracking
+                    <span id="aircraft-count-badge" style="background: rgba(74, 158, 255, 0.2); color: #4a9eff; padding: 2px 8px; border-radius: 12px; font-size: 0.7em; font-weight: 700; margin-left: 8px;">0</span>
+                </span>
+                <span class="section-toggle">&#9660;</span>
+            </div>
+            <div id="aircraft-content" class="section-content">
+                <div class="grid grid-compact" style="grid-template-columns: 1fr 1fr;">
+                    <!-- Unified Map (rover + aircraft) -->
+                    <div class="card">
+                        <h2>Situational Awareness Map</h2>
+                        <div id="aircraft-map" style="height: 450px; width: 100%; border-radius: 4px; border: 1px solid var(--border-color);"></div>
+                        <div class="text-muted mt-1" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                            <span>
+                                <span style="color: #00e676;">&#9679;</span> Rover:
+                                <span id="rover-position-display" style="color: #b0b0b0;">--</span>
+                            </span>
+                            <span>
+                                <span style="color: #00e5ff;">&#9992;</span> Aircraft: <span id="aircraft-map-count" style="color: #4a9eff; font-weight: 600;">0</span>
+                            </span>
+                            <span>1090 MHz | RTL-SDR V4</span>
+                        </div>
+                    </div>
+
+                    <!-- Aircraft List -->
+                    <div class="card">
+                        <h2>Tracked Aircraft</h2>
+                        <div id="aircraft-list-container" style="max-height: 450px; overflow-y: auto; font-size: 0.8em;">
+                            <div class="text-center text-muted" style="padding: 40px 0;">
+                                Waiting for ADS-B data...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- ============================================
              SENSOR DATA
              ============================================ -->

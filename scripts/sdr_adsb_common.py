@@ -43,9 +43,12 @@ except ImportError:
 
 # Optional: scipy
 try:
-    from scipy import signal as scipy_signal
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from scipy import signal as scipy_signal
     SCIPY_AVAILABLE = True
-except (ImportError, AttributeError, ValueError):
+except (ImportError, AttributeError, ValueError, Exception):
     SCIPY_AVAILABLE = False
 
 

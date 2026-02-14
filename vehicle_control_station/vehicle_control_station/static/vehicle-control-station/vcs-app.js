@@ -101,12 +101,18 @@ function toggleSection(sectionId) {
 
 // Initialize all sections as expanded
 window.addEventListener('DOMContentLoaded', function() {
-    ['instruments', 'diagnostics', 'cameras', 'sensors', 'pointcloud'].forEach(function(section) {
+    ['instruments', 'diagnostics', 'cameras', 'sensors', 'pointcloud', 'aircraft'].forEach(function(section) {
         const content = document.getElementById(section + '-content');
         if (content) {
             content.style.maxHeight = content.scrollHeight + 'px';
         }
     });
+    // Invalidate aircraft map size after layout settles (Leaflet needs this)
+    setTimeout(function() {
+        if (typeof aircraftMap !== 'undefined' && aircraftMap) {
+            aircraftMap.invalidateSize();
+        }
+    }, 500);
 });
 
 // ============================================
@@ -405,37 +411,333 @@ function updateCameraButton(cameraId, isActive) {
 }
 
 // ============================================
-// GPS MAP INITIALIZATION
+// UNIFIED SITUATIONAL AWARENESS MAP
+// (Rover position + ADS-B aircraft on one map)
 // ============================================
-const map = L.map('map').setView([0, 0], 13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap'
-}).addTo(map);
 
-const pathCoordinates = [];
-const polyline = L.polyline(pathCoordinates, {color: 'blue'}).addTo(map);
-let lastGpsUpdate = 0;
+const aircraftMap = (function() {
+    const mapEl = document.getElementById('aircraft-map');
+    if (!mapEl) return null;
+    // Default center: Phoenix metro area
+    const m = L.map('aircraft-map').setView([33.45, -112.07], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+    }).addTo(m);
+    return m;
+})();
 
-const gpsListener = new ROSLIB.Topic({
+// --- Rover position on the unified map ---
+const roverIcon = L.divIcon({
+    className: 'rover-marker-icon',
+    html: '<div style="width: 14px; height: 14px; background: #00e676; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 8px rgba(0,230,118,0.7);"></div>',
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+    popupAnchor: [0, -10]
+});
+let roverMarker = null;
+const roverPathCoords = [];
+let roverPolyline = null;
+let roverMapCentered = false;
+let lastRoverGpsUpdate = 0;
+
+if (aircraftMap) {
+    roverPolyline = L.polyline(roverPathCoords, {
+        color: '#00e676',
+        weight: 3,
+        opacity: 0.7
+    }).addTo(aircraftMap);
+}
+
+// Subscribe to mavros GPS for rover position
+const roverGpsListener = new ROSLIB.Topic({
     ros: ros,
     name: '/mavros/global_position/raw/fix',
     messageType: 'sensor_msgs/NavSatFix'
 });
 
-gpsListener.subscribe(function(message) {
+roverGpsListener.subscribe(function(message) {
+    if (!aircraftMap) return;
+
     const now = Date.now();
-    if (now - lastGpsUpdate < 2000) return; // Throttle to 0.5 Hz
-    
+    if (now - lastRoverGpsUpdate < 2000) return;  // Throttle to 0.5 Hz
+    lastRoverGpsUpdate = now;
+
     const lat = message.latitude;
     const lon = message.longitude;
-    
-    if (lat !== 0 && lon !== 0) {
-        pathCoordinates.push([lat, lon]);
-        polyline.setLatLngs(pathCoordinates);
-        map.setView([lat, lon], 18);
-        lastGpsUpdate = now;
+
+    if (lat === 0 && lon === 0) return;
+
+    // Update rover path
+    roverPathCoords.push([lat, lon]);
+    roverPolyline.setLatLngs(roverPathCoords);
+
+    // Update or create rover marker
+    if (roverMarker) {
+        roverMarker.setLatLng([lat, lon]);
+    } else {
+        roverMarker = L.marker([lat, lon], {
+            icon: roverIcon,
+            zIndexOffset: 2000  // Above aircraft markers
+        }).addTo(aircraftMap);
+        roverMarker.bindPopup(
+            '<div style="font-family: monospace; font-size: 12px;">' +
+            '<div style="color: #00e676; font-weight: bold;">Earth Rover</div>' +
+            '</div>',
+            { className: 'aircraft-popup', closeButton: false }
+        );
+    }
+
+    // Update rover popup with current coords
+    roverMarker.setPopupContent(
+        '<div style="font-family: monospace; font-size: 12px;">' +
+        '<div style="color: #00e676; font-weight: bold; margin-bottom: 4px;">Earth Rover</div>' +
+        '<div style="color: #b0b0b0;">' + lat.toFixed(6) + ', ' + lon.toFixed(6) + '</div>' +
+        '</div>'
+    );
+
+    // Update position display under the map
+    const posDisplay = document.getElementById('rover-position-display');
+    if (posDisplay) {
+        posDisplay.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
+    }
+
+    // Center map on rover on first fix (if no aircraft has centered it yet)
+    if (!roverMapCentered) {
+        aircraftMap.setView([lat, lon], 11);
+        roverMapCentered = true;
     }
 });
+
+// State for tracked aircraft
+const aircraftMarkers = {};   // ICAO -> { marker, data, lastSeen }
+const aircraftData = {};       // ICAO -> { callsign, alt, speed, heading, lat, lon }
+const AIRCRAFT_STALE_MS = 60000;  // Remove after 60s (1 minute) without update
+let aircraftMapCentered = false;
+
+// Create airplane icon for a given heading
+function createAircraftIcon(heading, isSelected) {
+    // ADS-B heading: 0°=N, 90°=E, 180°=S, 270°=W  (CW from true north)
+    // The ✈ glyph (U+2708) points east (right) by default, so subtract
+    // 90° to align it: heading 0° → rotate(-90°) → points north.
+    const rotation = (heading || 0) - 90;
+    const color = isSelected ? '#ff4444' : '#00e5ff';
+    return L.divIcon({
+        className: 'aircraft-marker-icon',
+        html: `<div style="transform: rotate(${rotation}deg); color: ${color}; font-size: 22px; text-align: center; line-height: 1;">&#9992;</div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+        popupAnchor: [0, -14]
+    });
+}
+
+// Build popup content for an aircraft
+function aircraftPopupContent(icao, data) {
+    let html = `<div style="min-width: 140px;">`;
+    html += `<div style="color: #4a9eff; font-weight: bold; font-size: 13px; margin-bottom: 4px;">${icao}</div>`;
+    if (data.callsign) {
+        html += `<div style="color: #00e676; font-size: 14px; font-weight: bold; margin-bottom: 4px;">${data.callsign}</div>`;
+    }
+    if (data.alt != null) {
+        html += `<div>ALT: <span style="color: #ffab40;">${data.alt.toFixed(0)} ft</span></div>`;
+    }
+    if (data.speed != null) {
+        html += `<div>SPD: <span style="color: #e0e0e0;">${data.speed.toFixed(0)} kts</span></div>`;
+    }
+    if (data.heading != null) {
+        html += `<div>HDG: <span style="color: #b0b0b0;">${data.heading.toFixed(0)}&deg;</span></div>`;
+    }
+    if (data.lat != null && data.lon != null) {
+        html += `<div style="color: #888; font-size: 10px; margin-top: 4px;">${data.lat.toFixed(4)}, ${data.lon.toFixed(4)}</div>`;
+    }
+    html += `</div>`;
+    return html;
+}
+
+// Subscribe to individual aircraft positions (NavSatFix)
+const aircraftPositionListener = new ROSLIB.Topic({
+    ros: ros,
+    name: '/adsb/rtl_adsb_decoder_node/aircraft',
+    messageType: 'sensor_msgs/NavSatFix'
+});
+
+aircraftPositionListener.subscribe(function(message) {
+    if (!aircraftMap) return;
+
+    // Extract ICAO from frame_id (format: "aircraft_ICAO")
+    const frameId = message.header.frame_id || '';
+    const icao = frameId.replace('aircraft_', '').toUpperCase();
+    if (!icao) return;
+
+    const lat = message.latitude;
+    const lon = message.longitude;
+    const alt = message.altitude;
+
+    if (lat === 0 && lon === 0) return;
+
+    // Update aircraft data
+    if (!aircraftData[icao]) {
+        aircraftData[icao] = {};
+    }
+    aircraftData[icao].lat = lat;
+    aircraftData[icao].lon = lon;
+    aircraftData[icao].alt = alt;
+
+    const heading = aircraftData[icao].heading || 0;
+
+    // Update or create marker
+    if (aircraftMarkers[icao]) {
+        aircraftMarkers[icao].marker.setLatLng([lat, lon]);
+        aircraftMarkers[icao].marker.setIcon(createAircraftIcon(heading, false));
+        aircraftMarkers[icao].marker.setPopupContent(aircraftPopupContent(icao, aircraftData[icao]));
+        aircraftMarkers[icao].lastSeen = Date.now();
+    } else {
+        const marker = L.marker([lat, lon], {
+            icon: createAircraftIcon(heading, false),
+            zIndexOffset: 1000
+        }).addTo(aircraftMap);
+        marker.bindPopup(aircraftPopupContent(icao, aircraftData[icao]), {
+            className: 'aircraft-popup',
+            closeButton: false,
+            autoPan: false
+        });
+        aircraftMarkers[icao] = { marker: marker, lastSeen: Date.now() };
+    }
+
+    // Center map on first aircraft only if rover hasn't centered it yet
+    if (!aircraftMapCentered && !roverMapCentered) {
+        aircraftMap.setView([lat, lon], 9);
+        aircraftMapCentered = true;
+    }
+});
+
+// Subscribe to aircraft list summary (String)
+const aircraftListListener = new ROSLIB.Topic({
+    ros: ros,
+    name: '/adsb/rtl_adsb_decoder_node/aircraft_list',
+    messageType: 'std_msgs/String'
+});
+
+let lastAircraftListUpdate = 0;
+
+aircraftListListener.subscribe(function(message) {
+    const now = Date.now();
+    if (now - lastAircraftListUpdate < 2000) return;  // Throttle to 0.5 Hz
+    lastAircraftListUpdate = now;
+
+    const data = message.data || '';
+
+    // Parse: "Tracked Aircraft (N): ICAO1 (CALL) @ALTft SPDkts hdg HDG°, ICAO2 ..."
+    const countMatch = data.match(/Tracked Aircraft \((\d+)\)/);
+    const count = countMatch ? parseInt(countMatch[1]) : 0;
+
+    // Update count badges
+    const countBadge = document.getElementById('aircraft-count-badge');
+    const mapCount = document.getElementById('aircraft-map-count');
+    if (countBadge) countBadge.textContent = count;
+    if (mapCount) mapCount.textContent = count;
+
+    // Parse individual aircraft entries
+    const listPart = data.replace(/Tracked Aircraft \(\d+\):\s*/, '');
+    const entries = listPart.split(',').map(e => e.trim()).filter(e => e.length > 0);
+
+    // Parse each entry and update aircraftData
+    const seenIcaos = new Set();
+    entries.forEach(function(entry) {
+        // Format: "ICAO (CALLSIGN) @ALTft SPEEDkts hdg HEADING°"
+        const icaoMatch = entry.match(/^([A-F0-9]{6})/i);
+        if (!icaoMatch) return;
+
+        const icao = icaoMatch[1].toUpperCase();
+        seenIcaos.add(icao);
+        if (!aircraftData[icao]) aircraftData[icao] = {};
+        aircraftData[icao]._listAge = Date.now();
+
+        const callMatch = entry.match(/\(([^)]+)\)/);
+        if (callMatch) aircraftData[icao].callsign = callMatch[1];
+
+        const altMatch = entry.match(/@([\d.]+)ft/);
+        if (altMatch) aircraftData[icao].alt = parseFloat(altMatch[1]);
+
+        const spdMatch = entry.match(/([\d.]+)kts/);
+        if (spdMatch) aircraftData[icao].speed = parseFloat(spdMatch[1]);
+
+        const hdgMatch = entry.match(/hdg\s+([\d.]+)/);
+        if (hdgMatch) {
+            aircraftData[icao].heading = parseFloat(hdgMatch[1]);
+            // Update marker icon rotation if marker exists
+            if (aircraftMarkers[icao]) {
+                aircraftMarkers[icao].marker.setIcon(createAircraftIcon(aircraftData[icao].heading, false));
+            }
+        }
+    });
+
+    // Remove map markers for aircraft the ROS node has already evicted
+    // (they no longer appear in the aircraft_list).
+    Object.keys(aircraftMarkers).forEach(function(icao) {
+        if (!seenIcaos.has(icao)) {
+            if (aircraftMap) aircraftMap.removeLayer(aircraftMarkers[icao].marker);
+            delete aircraftMarkers[icao];
+            delete aircraftData[icao];
+        }
+    });
+
+    // Update aircraft list UI
+    updateAircraftListUI(entries);
+});
+
+function updateAircraftListUI(entries) {
+    const container = document.getElementById('aircraft-list-container');
+    if (!container) return;
+
+    if (entries.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted" style="padding: 40px 0;">No aircraft detected</div>';
+        return;
+    }
+
+    let html = '<table class="aircraft-table"><thead><tr>';
+    html += '<th>ICAO</th><th>Callsign</th><th>Alt (ft)</th><th>Speed</th><th>Hdg</th>';
+    html += '</tr></thead><tbody>';
+
+    entries.forEach(function(entry) {
+        const icaoMatch = entry.match(/^([A-F0-9]{6})/i);
+        if (!icaoMatch) return;
+        const icao = icaoMatch[1].toUpperCase();
+        const d = aircraftData[icao] || {};
+
+        html += '<tr>';
+        html += `<td class="icao-cell">${icao}</td>`;
+        html += `<td class="callsign-cell">${d.callsign || '--'}</td>`;
+        html += `<td class="alt-cell">${d.alt != null ? d.alt.toFixed(0) : '--'}</td>`;
+        html += `<td class="speed-cell">${d.speed != null ? d.speed.toFixed(0) + ' kts' : '--'}</td>`;
+        html += `<td class="heading-cell">${d.heading != null ? d.heading.toFixed(0) + '&deg;' : '--'}</td>`;
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+// Periodic cleanup of stale aircraft markers (every 10 seconds)
+setInterval(function() {
+    const now = Date.now();
+    // Remove stale markers (no position update in 60 seconds)
+    Object.keys(aircraftMarkers).forEach(function(icao) {
+        if (now - aircraftMarkers[icao].lastSeen > AIRCRAFT_STALE_MS) {
+            if (aircraftMap) aircraftMap.removeLayer(aircraftMarkers[icao].marker);
+            delete aircraftMarkers[icao];
+            delete aircraftData[icao];
+        }
+    });
+    // Also clean up orphaned aircraftData entries that have no marker
+    // and haven't been refreshed via the aircraft_list topic
+    Object.keys(aircraftData).forEach(function(icao) {
+        if (!aircraftMarkers[icao] && aircraftData[icao]._listAge != null) {
+            if (now - aircraftData[icao]._listAge > AIRCRAFT_STALE_MS) {
+                delete aircraftData[icao];
+            }
+        }
+    });
+}, 10000);
 
 // ============================================
 // COMPACT INSTRUMENTS (Simplified versions)

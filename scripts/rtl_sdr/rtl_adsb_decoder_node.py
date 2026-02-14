@@ -153,10 +153,13 @@ class RTLADSBDecoderNode(Node):
         # Timers
         # ====================================================================
 
+        # Cleanup stale aircraft every 5 seconds (aircraft_timeout param
+        # controls how long they stay; default 60s = 1 minute of no data).
         self.cleanup_timer = self.create_timer(
-            10.0, self._cleanup_callback)
+            5.0, self._cleanup_callback)
+        # Publish aircraft list + re-broadcast all positions every 2 seconds.
         self.publish_timer = self.create_timer(
-            1.0, self._publish_list_callback)
+            2.0, self._publish_list_callback)
 
         # ====================================================================
         # Startup log
@@ -216,16 +219,31 @@ class RTLADSBDecoderNode(Node):
         self.get_logger().info(f'Starting: {" ".join(cmd)}')
 
         try:
+            # IMPORTANT: Do NOT use subprocess.PIPE for stdout/stderr.
+            # dump1090 writes status output continuously.  If the pipe
+            # buffers fill up (64 KB) and nobody reads them, dump1090's
+            # write() blocks and it stops processing radio data entirely.
+            # We read ADS-B data from TCP :30003, not stdout, so discard
+            # dump1090's console output.
+            self._dump1090_log = open('/tmp/dump1090_stderr.log', 'w')
             self.dump1090_process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True)
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=self._dump1090_log)
 
             time.sleep(2.0)
 
             if self.dump1090_process.poll() is not None:
-                stderr = self.dump1090_process.stderr.read()
-                self.get_logger().error(
-                    f'dump1090 failed to start: {stderr}')
+                # dump1090 exited immediately -- read the log for clues
+                self._dump1090_log.flush()
+                try:
+                    with open('/tmp/dump1090_stderr.log', 'r') as f:
+                        err = f.read(4096)
+                    self.get_logger().error(
+                        f'dump1090 failed to start: {err}')
+                except Exception:
+                    self.get_logger().error(
+                        'dump1090 failed to start (no stderr captured)')
                 return
 
             self.decoder_thread = threading.Thread(
@@ -481,7 +499,22 @@ class RTLADSBDecoderNode(Node):
         self.decoder.prune_cpr_buffer()
 
     def _publish_list_callback(self):
+        """Periodically publish aircraft list AND re-publish all positions.
+
+        This ensures the VCS (or any late subscriber) always receives
+        up-to-date positions for every tracked aircraft, not just when
+        a new SBS position message arrives from dump1090.
+        """
         publish_aircraft_list_string(self.tracker, self.aircraft_list_pub)
+
+        # Re-publish NavSatFix for every aircraft that has a position.
+        # The tracker lock is acquired inside aircraft_list_string() above
+        # and released, so acquire again here for the position sweep.
+        with self.tracker.lock:
+            for ac in self.tracker.aircraft.values():
+                if ac.has_position():
+                    publish_aircraft_navsatfix(
+                        ac, self.get_clock(), self.aircraft_pub)
 
     # ====================================================================
     # Cleanup
@@ -495,6 +528,11 @@ class RTLADSBDecoderNode(Node):
                 self.dump1090_process.wait(timeout=3.0)
             except subprocess.TimeoutExpired:
                 self.dump1090_process.kill()
+        if hasattr(self, '_dump1090_log') and self._dump1090_log:
+            try:
+                self._dump1090_log.close()
+            except Exception:
+                pass
         super().destroy_node()
 
 
