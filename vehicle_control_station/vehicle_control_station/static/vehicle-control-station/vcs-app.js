@@ -518,6 +518,8 @@ const estimatedPosIcon = L.divIcon({
 });
 let estimatedPosMarker = null;
 let estimatedPosCircle = null;
+let useKalmanEstimate = true;
+let enableAircraftPropagation = true;
 
 const estimatedPosListener = new ROSLIB.Topic({
     ros: ros,
@@ -529,16 +531,35 @@ estimatedPosListener.subscribe(function(message) {
     if (!aircraftMap) return;
     try {
         const data = JSON.parse(message.data);
-        const lat = data.lat;
-        const lon = data.lon;
-        const count = data.aircraft_used;
-        const confidence = data.confidence;
+        const hasKf = data.kf_lat != null && data.kf_lon != null;
+        const hasRaw = data.raw_lat != null && data.raw_lon != null;
+        const lat = useKalmanEstimate
+            ? (hasKf ? data.kf_lat : data.lat)
+            : (hasRaw ? data.raw_lat : data.lat);
+        const lon = useKalmanEstimate
+            ? (hasKf ? data.kf_lon : data.lon)
+            : (hasRaw ? data.raw_lon : data.lon);
+        const count = data.aircraft_used || 0;
+        const confidence = data.confidence || 0;
+        const sigmaMajorKm = data.sigma_major_km;
+        const sigmaMinorKm = data.sigma_minor_km;
+        const lowAltUsed = data.low_alt_used;
+        const rejectedOutliers = data.rejected_outliers;
+        const medianAgeS = data.median_age_s;
 
-        if (!lat || !lon) return;
+        if (lat == null || lon == null) return;
 
-        // Estimate accuracy radius: lower confidence = larger circle
-        // Rough heuristic: at confidence=1.0 → ~10km, at 0.0 → ~100km
-        const radiusKm = 10 + (1.0 - confidence) * 90;
+        // Prefer estimator-provided radius; fallback to legacy heuristic.
+        let radiusKm;
+        if (useKalmanEstimate && data.kf_radius_km != null) {
+            radiusKm = data.kf_radius_km;
+        } else if (!useKalmanEstimate && data.sigma_major_km != null) {
+            radiusKm = Math.max(5.0, data.sigma_major_km * 2.0);
+        } else if (data.est_radius_km != null) {
+            radiusKm = data.est_radius_km;
+        } else {
+            radiusKm = 10 + (1.0 - confidence) * 90;
+        }
         const radiusM = radiusKm * 1000;
 
         // Update or create marker
@@ -566,9 +587,16 @@ estimatedPosListener.subscribe(function(message) {
         estimatedPosMarker.bindPopup(
             '<div style="font-family: monospace; font-size: 12px;">' +
             '<div style="color: #ff9800; font-weight: bold; margin-bottom: 4px;">Estimated RTL-SDR Position</div>' +
+            '<div style="color: #888;">Mode: ' + (useKalmanEstimate ? 'KF smoothed' : 'Raw robust') + '</div>' +
             '<div style="color: #b0b0b0;">' + lat.toFixed(5) + ', ' + lon.toFixed(5) + '</div>' +
             '<div style="color: #888; margin-top: 4px;">From ' + count + ' aircraft</div>' +
+            '<div style="color: #888;">Low-alt used: ' + (lowAltUsed != null ? lowAltUsed : '--') + '</div>' +
+            '<div style="color: #888;">Rejected outliers: ' + (rejectedOutliers != null ? rejectedOutliers : '--') + '</div>' +
+            '<div style="color: #888;">Median age: ' + (medianAgeS != null ? medianAgeS + ' s' : '--') + '</div>' +
             '<div style="color: #888;">Confidence: ' + Math.round(confidence * 100) + '%</div>' +
+            '<div style="color: #888;">σ major/minor: ' +
+                (sigmaMajorKm != null ? sigmaMajorKm.toFixed(1) : '--') + '/' +
+                (sigmaMinorKm != null ? sigmaMinorKm.toFixed(1) : '--') + ' km</div>' +
             '<div style="color: #888;">Est. radius: ~' + radiusKm.toFixed(0) + ' km</div>' +
             '</div>',
             { className: 'aircraft-popup', closeButton: false }
@@ -577,7 +605,8 @@ estimatedPosListener.subscribe(function(message) {
         // Update display under the map
         const estDisplay = document.getElementById('estimated-pos-display');
         if (estDisplay) {
-            estDisplay.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5) +
+            estDisplay.textContent = (useKalmanEstimate ? 'KF: ' : 'RAW: ') +
+                lat.toFixed(5) + ', ' + lon.toFixed(5) +
                 ' (' + Math.round(confidence * 100) + '%, ' + count + ' ac)';
         }
 
@@ -590,7 +619,29 @@ estimatedPosListener.subscribe(function(message) {
 const aircraftMarkers = {};   // ICAO -> { marker, data, lastSeen }
 const aircraftData = {};       // ICAO -> { callsign, alt, speed, heading, lat, lon }
 const AIRCRAFT_STALE_MS = 60000;  // Remove after 60s (1 minute) without update
+const AIRCRAFT_PROPAGATION_MAX_S = 8.0;
+const AIRCRAFT_PREDICTION_HORIZON_S = 2.0;
 let aircraftMapCentered = false;
+
+function propagateAircraftPose(lat, lon, speedKts, headingDeg, dtSeconds) {
+    // Propagate using ground speed and heading in local tangent approximation.
+    if (
+        lat == null || lon == null ||
+        speedKts == null || headingDeg == null ||
+        dtSeconds <= 0
+    ) {
+        return [lat, lon];
+    }
+    const speedMps = speedKts * 0.514444;
+    const distanceM = speedMps * dtSeconds;
+    const hdgRad = headingDeg * Math.PI / 180.0;
+    const northM = distanceM * Math.cos(hdgRad);
+    const eastM = distanceM * Math.sin(hdgRad);
+    const dLat = northM / 111320.0;
+    const cosLat = Math.cos(lat * Math.PI / 180.0);
+    const dLon = eastM / (111320.0 * Math.max(1e-6, Math.abs(cosLat)));
+    return [lat + dLat, lon + dLon];
+}
 
 // Create airplane icon for a given heading
 function createAircraftIcon(heading, isSelected) {
@@ -659,6 +710,7 @@ aircraftPositionListener.subscribe(function(message) {
     aircraftData[icao].lat = lat;
     aircraftData[icao].lon = lon;
     aircraftData[icao].alt = alt;
+    aircraftData[icao].lastPositionUpdateMs = Date.now();
 
     const heading = aircraftData[icao].heading || 0;
 
@@ -678,7 +730,29 @@ aircraftPositionListener.subscribe(function(message) {
             closeButton: false,
             autoPan: false
         });
-        aircraftMarkers[icao] = { marker: marker, lastSeen: Date.now() };
+        const vector = L.polyline([[lat, lon], [lat, lon]], {
+            color: '#00e5ff',
+            weight: 1.5,
+            opacity: 0.6,
+            dashArray: '4 4'
+        }).addTo(aircraftMap);
+        const predicted = L.circleMarker([lat, lon], {
+            radius: 4,
+            color: '#00e5ff',
+            weight: 1,
+            fillColor: '#00e5ff',
+            fillOpacity: 0.25
+        }).addTo(aircraftMap);
+        aircraftMarkers[icao] = {
+            marker: marker,
+            vector: vector,
+            predicted: predicted,
+            lastSeen: Date.now()
+        };
+        if (!enableAircraftPropagation) {
+            if (aircraftMap.hasLayer(vector)) aircraftMap.removeLayer(vector);
+            if (aircraftMap.hasLayer(predicted)) aircraftMap.removeLayer(predicted);
+        }
     }
 
     // Center map on first aircraft only if rover hasn't centered it yet
@@ -753,7 +827,11 @@ aircraftListListener.subscribe(function(message) {
     // (they no longer appear in the aircraft_list).
     Object.keys(aircraftMarkers).forEach(function(icao) {
         if (!seenIcaos.has(icao)) {
-            if (aircraftMap) aircraftMap.removeLayer(aircraftMarkers[icao].marker);
+            if (aircraftMap) {
+                aircraftMap.removeLayer(aircraftMarkers[icao].marker);
+                if (aircraftMarkers[icao].vector) aircraftMap.removeLayer(aircraftMarkers[icao].vector);
+                if (aircraftMarkers[icao].predicted) aircraftMap.removeLayer(aircraftMarkers[icao].predicted);
+            }
             delete aircraftMarkers[icao];
             delete aircraftData[icao];
         }
@@ -795,13 +873,53 @@ function updateAircraftListUI(entries) {
     container.innerHTML = html;
 }
 
+// Smoothly propagate aircraft between ADS-B updates and render
+// heading vector + predicted next-update marker.
+setInterval(function() {
+    if (!enableAircraftPropagation) {
+        return;
+    }
+    const nowMs = Date.now();
+    Object.keys(aircraftMarkers).forEach(function(icao) {
+        const layers = aircraftMarkers[icao];
+        const d = aircraftData[icao];
+        if (!layers || !d || d.lat == null || d.lon == null) return;
+
+        const lastMs = d.lastPositionUpdateMs || layers.lastSeen || nowMs;
+        const elapsedS = Math.max(0, Math.min((nowMs - lastMs) / 1000.0, AIRCRAFT_PROPAGATION_MAX_S));
+        const currentPos = propagateAircraftPose(
+            d.lat, d.lon, d.speed, d.heading, elapsedS);
+        const predictedPos = propagateAircraftPose(
+            d.lat, d.lon, d.speed, d.heading, elapsedS + AIRCRAFT_PREDICTION_HORIZON_S);
+
+        if (currentPos[0] == null || currentPos[1] == null) return;
+        layers.marker.setLatLng(currentPos);
+        layers.marker.setPopupContent(aircraftPopupContent(icao, {
+            ...d,
+            lat: currentPos[0],
+            lon: currentPos[1]
+        }));
+
+        if (layers.vector && predictedPos[0] != null && predictedPos[1] != null) {
+            layers.vector.setLatLngs([currentPos, predictedPos]);
+        }
+        if (layers.predicted && predictedPos[0] != null && predictedPos[1] != null) {
+            layers.predicted.setLatLng(predictedPos);
+        }
+    });
+}, 400);
+
 // Periodic cleanup of stale aircraft markers (every 10 seconds)
 setInterval(function() {
     const now = Date.now();
     // Remove stale markers (no position update in 60 seconds)
     Object.keys(aircraftMarkers).forEach(function(icao) {
         if (now - aircraftMarkers[icao].lastSeen > AIRCRAFT_STALE_MS) {
-            if (aircraftMap) aircraftMap.removeLayer(aircraftMarkers[icao].marker);
+            if (aircraftMap) {
+                aircraftMap.removeLayer(aircraftMarkers[icao].marker);
+                if (aircraftMarkers[icao].vector) aircraftMap.removeLayer(aircraftMarkers[icao].vector);
+                if (aircraftMarkers[icao].predicted) aircraftMap.removeLayer(aircraftMarkers[icao].predicted);
+            }
             delete aircraftMarkers[icao];
             delete aircraftData[icao];
         }
@@ -816,6 +934,49 @@ setInterval(function() {
         }
     });
 }, 10000);
+
+function updateAircraftOverlayVisibility() {
+    if (!aircraftMap) return;
+    Object.keys(aircraftMarkers).forEach(function(icao) {
+        const layers = aircraftMarkers[icao];
+        const d = aircraftData[icao];
+        if (!layers) return;
+        if (layers.vector) {
+            const has = aircraftMap.hasLayer(layers.vector);
+            if (enableAircraftPropagation && !has) aircraftMap.addLayer(layers.vector);
+            if (!enableAircraftPropagation && has) aircraftMap.removeLayer(layers.vector);
+        }
+        if (layers.predicted) {
+            const has = aircraftMap.hasLayer(layers.predicted);
+            if (enableAircraftPropagation && !has) aircraftMap.addLayer(layers.predicted);
+            if (!enableAircraftPropagation && has) aircraftMap.removeLayer(layers.predicted);
+        }
+        // When propagation is disabled, snap marker to latest measured pose.
+        if (!enableAircraftPropagation && d && d.lat != null && d.lon != null) {
+            layers.marker.setLatLng([d.lat, d.lon]);
+        }
+    });
+}
+
+// Bind map toggle controls
+window.addEventListener('DOMContentLoaded', function() {
+    const estimateModeSelect = document.getElementById('estimate-mode-select');
+    if (estimateModeSelect) {
+        useKalmanEstimate = estimateModeSelect.value !== 'raw';
+        estimateModeSelect.addEventListener('change', function(e) {
+            useKalmanEstimate = e.target.value !== 'raw';
+        });
+    }
+
+    const propagationToggle = document.getElementById('aircraft-propagation-toggle');
+    if (propagationToggle) {
+        enableAircraftPropagation = propagationToggle.checked;
+        propagationToggle.addEventListener('change', function(e) {
+            enableAircraftPropagation = !!e.target.checked;
+            updateAircraftOverlayVisibility();
+        });
+    }
+});
 
 // ============================================
 // COMPACT INSTRUMENTS (Simplified versions)

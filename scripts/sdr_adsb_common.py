@@ -29,6 +29,7 @@ References:
 """
 
 import time
+import math
 import threading
 import numpy as np
 from collections import deque
@@ -597,69 +598,132 @@ def publish_aircraft_list_string(tracker: AircraftTracker, publisher):
 def estimate_receiver_position(
     tracker: AircraftTracker,
     min_aircraft: int = 4,
-) -> Optional[Tuple[float, float, int, float]]:
-    """Estimate the RTL-SDR receiver position from tracked aircraft.
+    time_decay_s: float = 30.0,
+) -> Optional[dict]:
+    """Estimate receiver position from tracked ADS-B aircraft.
 
-    ADS-B reception is limited by radio line-of-sight.  The maximum
-    range to an aircraft at altitude *h* feet is approximately:
+    Phase-2 estimator:
+      1) Build base weights from altitude and sample age
+      2) Project aircraft positions into local ENU plane
+      3) Run robust IRLS centroid (Huber-style down-weighting)
+      4) Compute covariance/uncertainty and confidence
 
-        d_max ≈ 1.23 × √h  (nautical miles)
-
-    Low-altitude aircraft MUST be close (short radio horizon), so they
-    are much more informative about the receiver's location than
-    high-altitude en-route traffic that can be received from 200+ nm.
-
-    Algorithm — altitude-weighted geographic centroid:
-        weight_i = 1 / √(altitude_i + 500)
-
-    The +500 ft floor prevents extreme weights from ground/low aircraft
-    and keeps the estimate stable.  The result is a weighted mean of
-    latitude and longitude.
-
-    Args:
-        tracker:      AircraftTracker with current aircraft
-        min_aircraft: Minimum aircraft with positions required (default 4)
-
-    Returns:
-        (lat, lon, aircraft_count, confidence) or None if insufficient data.
-        confidence is in [0, 1] — higher when more low-altitude aircraft
-        contribute (tighter constraint on position).
+    Returns a dict suitable for JSON publishing, or None if not enough data.
     """
+    now = time.time()
     with tracker.lock:
-        positioned = [
-            ac for ac in tracker.aircraft.values()
-            if ac.has_position() and ac.altitude is not None
-        ]
+        samples = []
+        for ac in tracker.aircraft.values():
+            if not ac.has_position():
+                continue
+            # Keep aircraft even if altitude is unknown (use conservative alt)
+            alt_ft = float(ac.altitude) if ac.altitude is not None else 35000.0
+            age_s = max(0.0, now - float(ac.last_update))
+            samples.append({
+                'lat': float(ac.latitude),
+                'lon': float(ac.longitude),
+                'alt_ft': max(0.0, alt_ft),
+                'age_s': age_s,
+            })
 
-    if len(positioned) < min_aircraft:
+    if len(samples) < min_aircraft:
         return None
 
-    total_weight = 0.0
-    weighted_lat = 0.0
-    weighted_lon = 0.0
-    low_alt_count = 0  # aircraft below 15 000 ft
+    # Base weight: low-altitude + fresh samples get higher influence.
+    # altitude term approximates radio-horizon constraint; time term suppresses stale data.
+    for s in samples:
+        w_alt = 1.0 / math.sqrt(s['alt_ft'] + 500.0)
+        w_age = math.exp(-s['age_s'] / max(1e-6, time_decay_s))
+        s['w0'] = w_alt * w_age
 
-    for ac in positioned:
-        alt = max(ac.altitude, 0.0)
-        weight = 1.0 / np.sqrt(alt + 500.0)
-        weighted_lat += ac.latitude * weight
-        weighted_lon += ac.longitude * weight
-        total_weight += weight
-        if alt < 15000.0:
-            low_alt_count += 1
-
-    if total_weight == 0.0:
+    w0 = np.array([s['w0'] for s in samples], dtype=np.float64)
+    if np.sum(w0) <= 0.0:
         return None
 
-    est_lat = weighted_lat / total_weight
-    est_lon = weighted_lon / total_weight
+    lats = np.array([s['lat'] for s in samples], dtype=np.float64)
+    lons = np.array([s['lon'] for s in samples], dtype=np.float64)
 
-    # Confidence heuristic:
-    #   - More aircraft → higher confidence (saturates at ~20)
-    #   - More low-altitude aircraft → higher confidence
-    n = len(positioned)
-    count_factor = min(n / 20.0, 1.0)            # 0..1
-    low_alt_factor = min(low_alt_count / 5.0, 1.0)  # 0..1
-    confidence = 0.5 * count_factor + 0.5 * low_alt_factor
+    # Seed point for local ENU projection (weighted geographic mean)
+    lat0 = float(np.sum(w0 * lats) / np.sum(w0))
+    lon0 = float(np.sum(w0 * lons) / np.sum(w0))
 
-    return (est_lat, est_lon, n, round(confidence, 2))
+    # Local tangent-plane projection (meters).
+    earth_r = 6371000.0
+    lat0_rad = math.radians(lat0)
+    x = earth_r * np.cos(lat0_rad) * np.radians(lons - lon0)  # east
+    y = earth_r * np.radians(lats - lat0)                      # north
+
+    # Initial weighted centroid in ENU.
+    mx = float(np.sum(w0 * x) / np.sum(w0))
+    my = float(np.sum(w0 * y) / np.sum(w0))
+
+    # Robust IRLS (Huber-style) against distant/outlier aircraft.
+    eps = 1e-9
+    robust_w = np.ones_like(w0)
+    for _ in range(6):
+        dx = x - mx
+        dy = y - my
+        r = np.sqrt(dx * dx + dy * dy)
+        scale = float(np.median(r) + 1.0)   # robust scale, avoid zero
+        k = 1.5 * scale                      # Huber threshold
+        robust_w = np.where(r <= k, 1.0, k / (r + eps))
+        w = w0 * robust_w
+        sw = float(np.sum(w))
+        if sw <= 0.0:
+            break
+        mx = float(np.sum(w * x) / sw)
+        my = float(np.sum(w * y) / sw)
+
+    # Final weights/stats.
+    w = w0 * robust_w
+    sw = float(np.sum(w))
+    if sw <= 0.0:
+        return None
+    dx = x - mx
+    dy = y - my
+    r = np.sqrt(dx * dx + dy * dy)
+
+    # Weighted covariance in ENU.
+    cov_xx = float(np.sum(w * dx * dx) / sw)
+    cov_xy = float(np.sum(w * dx * dy) / sw)
+    cov_yy = float(np.sum(w * dy * dy) / sw)
+    cov = np.array([[cov_xx, cov_xy], [cov_xy, cov_yy]], dtype=np.float64)
+    eigvals = np.linalg.eigvalsh(cov)
+    eigvals = np.maximum(eigvals, 0.0)
+    sigma_minor_m = float(np.sqrt(eigvals[0]))
+    sigma_major_m = float(np.sqrt(eigvals[1]))
+
+    # Convert ENU centroid back to lat/lon.
+    est_lat = lat0 + math.degrees(my / earth_r)
+    est_lon = lon0 + math.degrees(mx / (earth_r * max(1e-9, math.cos(lat0_rad))))
+
+    n = len(samples)
+    low_alt_count = sum(1 for s in samples if s['alt_ft'] < 15000.0)
+    median_age = float(np.median(np.array([s['age_s'] for s in samples])))
+    rejected = int(np.sum(robust_w < 0.2))
+
+    # Confidence combines:
+    #   - aircraft count
+    #   - low-altitude coverage
+    #   - geometric compactness (smaller covariance => higher confidence)
+    count_factor = min(n / 20.0, 1.0)
+    low_alt_factor = min(low_alt_count / 6.0, 1.0)
+    compactness = math.exp(-sigma_major_m / 40000.0)  # ~1 near tight cluster, decays with spread
+    confidence = max(0.0, min(1.0, 0.35 * count_factor + 0.35 * low_alt_factor + 0.30 * compactness))
+
+    # Uncertainty radius for map display (~2-sigma major axis + confidence penalty)
+    est_radius_km = (2.0 * sigma_major_m) / 1000.0 + (1.0 - confidence) * 20.0
+    est_radius_km = float(max(5.0, min(200.0, est_radius_km)))
+
+    return {
+        'lat': round(est_lat, 6),
+        'lon': round(est_lon, 6),
+        'aircraft_used': int(n),
+        'low_alt_used': int(low_alt_count),
+        'rejected_outliers': int(rejected),
+        'median_age_s': round(median_age, 1),
+        'confidence': round(confidence, 3),
+        'sigma_major_km': round(sigma_major_m / 1000.0, 2),
+        'sigma_minor_km': round(sigma_minor_m / 1000.0, 2),
+        'est_radius_km': round(est_radius_km, 1),
+    }

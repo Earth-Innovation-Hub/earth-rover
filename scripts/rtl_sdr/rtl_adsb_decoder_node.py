@@ -41,6 +41,7 @@ import sys
 import subprocess
 import threading
 import time
+import math
 import numpy as np
 from collections import deque
 from typing import Dict, Optional
@@ -111,6 +112,13 @@ class RTLADSBDecoderNode(Node):
         self.dump1090_process = None
         self.decoder_thread = None
         self.stop_flag = threading.Event()
+        # Receiver-position Kalman filter state (ENU local frame)
+        self._kf_initialized = False
+        self._kf_ref_lat = None
+        self._kf_ref_lon = None
+        self._kf_x = np.zeros((4, 1), dtype=np.float64)   # [x, y, vx, vy]
+        self._kf_P = np.eye(4, dtype=np.float64) * 1e6
+        self._kf_last_t = None
 
         # ====================================================================
         # Publishers
@@ -530,21 +538,134 @@ class RTLADSBDecoderNode(Node):
         if result is None:
             return
 
-        est_lat, est_lon, count, confidence = result
+        # Apply receiver Kalman filtering on top of robust estimator output.
+        raw_lat = float(result.get('lat'))
+        raw_lon = float(result.get('lon'))
+        meas_sigma_km = result.get('sigma_major_km')
+        if meas_sigma_km is None:
+            # Fallback if only radius is available.
+            meas_sigma_km = max(1.0, float(result.get('est_radius_km', 20.0)) * 0.5)
+        kf_lat, kf_lon, kf_radius_km = self._kf_update_receiver_position(
+            raw_lat, raw_lon, float(meas_sigma_km) * 1000.0)
+
+        result['raw_lat'] = round(raw_lat, 6)
+        result['raw_lon'] = round(raw_lon, 6)
+        result['kf_lat'] = round(kf_lat, 6)
+        result['kf_lon'] = round(kf_lon, 6)
+        result['kf_radius_km'] = round(kf_radius_km, 2)
+        # Keep compatibility for existing consumers (map reads lat/lon).
+        result['lat'] = result['kf_lat']
+        result['lon'] = result['kf_lon']
+        result['est_radius_km'] = result['kf_radius_km']
 
         # Publish as JSON string for easy parsing on the VCS side
         msg = String()
-        msg.data = json.dumps({
-            'lat': round(est_lat, 6),
-            'lon': round(est_lon, 6),
-            'aircraft_used': count,
-            'confidence': confidence,
-        })
+        msg.data = json.dumps(result)
         self.estimated_pos_pub.publish(msg)
 
+        est_lat = result.get('lat', 0.0)
+        est_lon = result.get('lon', 0.0)
+        count = result.get('aircraft_used', 0)
+        confidence = result.get('confidence', 0.0)
+        radius_km = result.get('est_radius_km', 0.0)
         self.get_logger().info(
             f'[EST] Receiver position: ({est_lat:.5f}, {est_lon:.5f}) '
-            f'from {count} aircraft, confidence={confidence:.0%}')
+            f'from {count} aircraft, confidence={confidence:.0%}, '
+            f'radius~{radius_km:.1f}km')
+
+    def _kf_latlon_to_xy(self, lat: float, lon: float) -> tuple:
+        """Convert lat/lon to local ENU meters around filter reference."""
+        if self._kf_ref_lat is None or self._kf_ref_lon is None:
+            self._kf_ref_lat = lat
+            self._kf_ref_lon = lon
+            return 0.0, 0.0
+        earth_r = 6371000.0
+        lat0_rad = math.radians(self._kf_ref_lat)
+        x = earth_r * math.cos(lat0_rad) * math.radians(lon - self._kf_ref_lon)
+        y = earth_r * math.radians(lat - self._kf_ref_lat)
+        return x, y
+
+    def _kf_xy_to_latlon(self, x: float, y: float) -> tuple:
+        """Convert local ENU meters back to lat/lon."""
+        earth_r = 6371000.0
+        lat0 = self._kf_ref_lat if self._kf_ref_lat is not None else 0.0
+        lon0 = self._kf_ref_lon if self._kf_ref_lon is not None else 0.0
+        lat = lat0 + math.degrees(y / earth_r)
+        lon = lon0 + math.degrees(
+            x / (earth_r * max(1e-9, math.cos(math.radians(lat0)))))
+        return lat, lon
+
+    def _kf_update_receiver_position(
+            self, meas_lat: float, meas_lon: float, meas_sigma_m: float) -> tuple:
+        """Constant-velocity 2D Kalman update for receiver estimate.
+
+        Returns:
+            (kf_lat, kf_lon, kf_radius_km)
+        """
+        now_t = time.time()
+        mx, my = self._kf_latlon_to_xy(meas_lat, meas_lon)
+
+        if not self._kf_initialized:
+            self._kf_x = np.array([[mx], [my], [0.0], [0.0]], dtype=np.float64)
+            p_pos = max(100.0, meas_sigma_m) ** 2
+            self._kf_P = np.diag([p_pos, p_pos, 2500.0, 2500.0]).astype(np.float64)
+            self._kf_last_t = now_t
+            self._kf_initialized = True
+            lat, lon = self._kf_xy_to_latlon(mx, my)
+            return lat, lon, max(1.0, 2.0 * meas_sigma_m / 1000.0)
+
+        dt = max(0.1, min(30.0, now_t - (self._kf_last_t or now_t)))
+        self._kf_last_t = now_t
+
+        # State transition
+        A = np.array([
+            [1.0, 0.0, dt, 0.0],
+            [0.0, 1.0, 0.0, dt],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ], dtype=np.float64)
+
+        # Process noise: white acceleration model
+        q_acc = 1.5  # m/s^2
+        q = q_acc * q_acc
+        dt2 = dt * dt
+        dt3 = dt2 * dt
+        dt4 = dt2 * dt2
+        Q = q * np.array([
+            [dt4 / 4.0, 0.0, dt3 / 2.0, 0.0],
+            [0.0, dt4 / 4.0, 0.0, dt3 / 2.0],
+            [dt3 / 2.0, 0.0, dt2, 0.0],
+            [0.0, dt3 / 2.0, 0.0, dt2],
+        ], dtype=np.float64)
+
+        # Predict
+        self._kf_x = A @ self._kf_x
+        self._kf_P = A @ self._kf_P @ A.T + Q
+
+        # Measurement update (x,y only)
+        H = np.array([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+        ], dtype=np.float64)
+        r_var = max(100.0, meas_sigma_m) ** 2
+        R = np.array([[r_var, 0.0], [0.0, r_var]], dtype=np.float64)
+        z = np.array([[mx], [my]], dtype=np.float64)
+        y = z - (H @ self._kf_x)
+        S = H @ self._kf_P @ H.T + R
+        K = self._kf_P @ H.T @ np.linalg.inv(S)
+        self._kf_x = self._kf_x + (K @ y)
+        I = np.eye(4, dtype=np.float64)
+        self._kf_P = (I - K @ H) @ self._kf_P
+
+        fx = float(self._kf_x[0, 0])
+        fy = float(self._kf_x[1, 0])
+        kf_lat, kf_lon = self._kf_xy_to_latlon(fx, fy)
+
+        pos_cov = self._kf_P[:2, :2]
+        evals = np.linalg.eigvalsh(pos_cov)
+        sigma_major_m = math.sqrt(max(float(evals[-1]), 0.0))
+        kf_radius_km = max(1.0, (2.0 * sigma_major_m) / 1000.0)
+        return kf_lat, kf_lon, kf_radius_km
 
     # ====================================================================
     # Cleanup
