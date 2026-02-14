@@ -83,6 +83,8 @@ class RTLADSBDecoderNode(Node):
         self.declare_parameter('reference_gps_topic', '/mavros/global_position/raw/fix')
         self.declare_parameter('kf_process_accel_mps2', 1.5)
         self.declare_parameter('kf_innovation_gate', 9.21)  # chi2(2 dof, 99%)
+        self.declare_parameter('estimator_active_window_s', 15.0)
+        self.declare_parameter('estimator_time_decay_s', 30.0)
 
         self.mode = self.get_parameter('mode').value
         self.dump1090_path = self.get_parameter('dump1090_path').value
@@ -99,6 +101,10 @@ class RTLADSBDecoderNode(Node):
             self.get_parameter('kf_process_accel_mps2').value)
         self.kf_innovation_gate = float(
             self.get_parameter('kf_innovation_gate').value)
+        self.estimator_active_window_s = float(
+            self.get_parameter('estimator_active_window_s').value)
+        self.estimator_time_decay_s = float(
+            self.get_parameter('estimator_time_decay_s').value)
 
         # ====================================================================
         # Shared components
@@ -201,6 +207,8 @@ class RTLADSBDecoderNode(Node):
         self.get_logger().info(
             f'  Gain: {"auto" if self.gain < 0 else f"{self.gain:.1f} dB"}')
         self.get_logger().info(f'  Reference GPS Topic: {self.reference_gps_topic}')
+        self.get_logger().info(
+            f'  Estimator Active Window: {self.estimator_active_window_s:.1f}s')
 
     # ====================================================================
     # dump1090 Mode
@@ -573,7 +581,12 @@ class RTLADSBDecoderNode(Node):
         """Estimate receiver position from the aircraft constellation."""
         import json
 
-        result = estimate_receiver_position(self.tracker, min_aircraft=4)
+        result = estimate_receiver_position(
+            self.tracker,
+            min_aircraft=4,
+            time_decay_s=self.estimator_time_decay_s,
+            active_window_s=self.estimator_active_window_s,
+        )
         if result is None:
             return
 

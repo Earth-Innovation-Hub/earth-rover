@@ -599,10 +599,12 @@ def estimate_receiver_position(
     tracker: AircraftTracker,
     min_aircraft: int = 4,
     time_decay_s: float = 30.0,
+    active_window_s: float = 15.0,
 ) -> Optional[dict]:
     """Estimate receiver position from tracked ADS-B aircraft.
 
-    Simplified first-principles model:
+    Simplified first-principles model (active-set / Markovian):
+      0) Use only ACTIVE aircraft (age <= active_window_s)
       1) Low-altitude aircraft constrain receiver location more strongly
          (shorter radio horizon), so weight by 1/sqrt(altitude + floor).
       2) Fresh samples are more trustworthy, so apply exponential age decay.
@@ -613,6 +615,7 @@ def estimate_receiver_position(
     Returns a dict suitable for JSON publishing, or None if insufficient data.
     """
     now = time.time()
+    active_window_s = max(0.5, float(active_window_s))
     with tracker.lock:
         samples = []
         for ac in tracker.aircraft.values():
@@ -621,6 +624,8 @@ def estimate_receiver_position(
             # Keep aircraft even if altitude is unknown (use conservative alt)
             alt_ft = float(ac.altitude) if ac.altitude is not None else 35000.0
             age_s = max(0.0, now - float(ac.last_update))
+            if age_s > active_window_s:
+                continue
             samples.append({
                 'lat': float(ac.latitude),
                 'lon': float(ac.longitude),
@@ -740,6 +745,7 @@ def estimate_receiver_position(
         'low_alt_used': int(low_alt_count),
         'rejected_outliers': int(rejected),
         'median_age_s': round(median_age, 1),
+        'active_window_s': round(active_window_s, 1),
         'confidence': round(confidence, 3),
         'sigma_major_km': round(sigma_major_m / 1000.0, 2),
         'sigma_minor_km': round(sigma_minor_m / 1000.0, 2),
