@@ -508,6 +508,84 @@ roverGpsListener.subscribe(function(message) {
     }
 });
 
+// --- ADS-B estimated receiver position ---
+const estimatedPosIcon = L.divIcon({
+    className: 'estimated-pos-icon',
+    html: '<div style="width: 20px; height: 20px; border: 2px dashed #ff9800; border-radius: 50%; background: rgba(255,152,0,0.15); box-shadow: 0 0 12px rgba(255,152,0,0.4);"></div>',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+    popupAnchor: [0, -12]
+});
+let estimatedPosMarker = null;
+let estimatedPosCircle = null;
+
+const estimatedPosListener = new ROSLIB.Topic({
+    ros: ros,
+    name: '/adsb/rtl_adsb_decoder_node/estimated_position',
+    messageType: 'std_msgs/String'
+});
+
+estimatedPosListener.subscribe(function(message) {
+    if (!aircraftMap) return;
+    try {
+        const data = JSON.parse(message.data);
+        const lat = data.lat;
+        const lon = data.lon;
+        const count = data.aircraft_used;
+        const confidence = data.confidence;
+
+        if (!lat || !lon) return;
+
+        // Estimate accuracy radius: lower confidence = larger circle
+        // Rough heuristic: at confidence=1.0 → ~10km, at 0.0 → ~100km
+        const radiusKm = 10 + (1.0 - confidence) * 90;
+        const radiusM = radiusKm * 1000;
+
+        // Update or create marker
+        if (estimatedPosMarker) {
+            estimatedPosMarker.setLatLng([lat, lon]);
+            estimatedPosCircle.setLatLng([lat, lon]);
+            estimatedPosCircle.setRadius(radiusM);
+        } else {
+            estimatedPosMarker = L.marker([lat, lon], {
+                icon: estimatedPosIcon,
+                zIndexOffset: 1500
+            }).addTo(aircraftMap);
+
+            estimatedPosCircle = L.circle([lat, lon], {
+                radius: radiusM,
+                color: '#ff9800',
+                weight: 1,
+                dashArray: '6 4',
+                fillColor: '#ff9800',
+                fillOpacity: 0.05
+            }).addTo(aircraftMap);
+        }
+
+        // Update popup
+        estimatedPosMarker.bindPopup(
+            '<div style="font-family: monospace; font-size: 12px;">' +
+            '<div style="color: #ff9800; font-weight: bold; margin-bottom: 4px;">Estimated RTL-SDR Position</div>' +
+            '<div style="color: #b0b0b0;">' + lat.toFixed(5) + ', ' + lon.toFixed(5) + '</div>' +
+            '<div style="color: #888; margin-top: 4px;">From ' + count + ' aircraft</div>' +
+            '<div style="color: #888;">Confidence: ' + Math.round(confidence * 100) + '%</div>' +
+            '<div style="color: #888;">Est. radius: ~' + radiusKm.toFixed(0) + ' km</div>' +
+            '</div>',
+            { className: 'aircraft-popup', closeButton: false }
+        );
+
+        // Update display under the map
+        const estDisplay = document.getElementById('estimated-pos-display');
+        if (estDisplay) {
+            estDisplay.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5) +
+                ' (' + Math.round(confidence * 100) + '%, ' + count + ' ac)';
+        }
+
+    } catch (e) {
+        console.error('Error parsing estimated position:', e);
+    }
+});
+
 // State for tracked aircraft
 const aircraftMarkers = {};   // ICAO -> { marker, data, lastSeen }
 const aircraftData = {};       // ICAO -> { callsign, alt, speed, heading, lat, lon }

@@ -55,6 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sdr_adsb_common import (
     Aircraft, AircraftTracker, ADSBIQDemodulator, PyModeSDecoder,
     PYMODES_AVAILABLE, publish_aircraft_navsatfix, publish_aircraft_list_string,
+    estimate_receiver_position,
 )
 
 
@@ -118,6 +119,8 @@ class RTLADSBDecoderNode(Node):
         self.aircraft_pub = self.create_publisher(NavSatFix, '~/aircraft', 10)
         self.aircraft_list_pub = self.create_publisher(
             String, '~/aircraft_list', 10)
+        self.estimated_pos_pub = self.create_publisher(
+            String, '~/estimated_position', 10)
         if self.publish_raw:
             self.raw_msg_pub = self.create_publisher(String, '~/messages', 10)
 
@@ -160,6 +163,9 @@ class RTLADSBDecoderNode(Node):
         # Publish aircraft list + re-broadcast all positions every 2 seconds.
         self.publish_timer = self.create_timer(
             2.0, self._publish_list_callback)
+        # Estimate receiver position from aircraft constellation every 5s.
+        self.estimate_timer = self.create_timer(
+            5.0, self._estimate_position_callback)
 
         # ====================================================================
         # Startup log
@@ -515,6 +521,30 @@ class RTLADSBDecoderNode(Node):
                 if ac.has_position():
                     publish_aircraft_navsatfix(
                         ac, self.get_clock(), self.aircraft_pub)
+
+    def _estimate_position_callback(self):
+        """Estimate receiver position from the aircraft constellation."""
+        import json
+
+        result = estimate_receiver_position(self.tracker, min_aircraft=4)
+        if result is None:
+            return
+
+        est_lat, est_lon, count, confidence = result
+
+        # Publish as JSON string for easy parsing on the VCS side
+        msg = String()
+        msg.data = json.dumps({
+            'lat': round(est_lat, 6),
+            'lon': round(est_lon, 6),
+            'aircraft_used': count,
+            'confidence': confidence,
+        })
+        self.estimated_pos_pub.publish(msg)
+
+        self.get_logger().info(
+            f'[EST] Receiver position: ({est_lat:.5f}, {est_lon:.5f}) '
+            f'from {count} aircraft, confidence={confidence:.0%}')
 
     # ====================================================================
     # Cleanup

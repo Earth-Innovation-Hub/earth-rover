@@ -588,3 +588,78 @@ def publish_aircraft_list_string(tracker: AircraftTracker, publisher):
     msg = String()
     msg.data = tracker.aircraft_list_string()
     publisher.publish(msg)
+
+
+# ============================================================================
+# Receiver Position Estimation from ADS-B
+# ============================================================================
+
+def estimate_receiver_position(
+    tracker: AircraftTracker,
+    min_aircraft: int = 4,
+) -> Optional[Tuple[float, float, int, float]]:
+    """Estimate the RTL-SDR receiver position from tracked aircraft.
+
+    ADS-B reception is limited by radio line-of-sight.  The maximum
+    range to an aircraft at altitude *h* feet is approximately:
+
+        d_max ≈ 1.23 × √h  (nautical miles)
+
+    Low-altitude aircraft MUST be close (short radio horizon), so they
+    are much more informative about the receiver's location than
+    high-altitude en-route traffic that can be received from 200+ nm.
+
+    Algorithm — altitude-weighted geographic centroid:
+        weight_i = 1 / √(altitude_i + 500)
+
+    The +500 ft floor prevents extreme weights from ground/low aircraft
+    and keeps the estimate stable.  The result is a weighted mean of
+    latitude and longitude.
+
+    Args:
+        tracker:      AircraftTracker with current aircraft
+        min_aircraft: Minimum aircraft with positions required (default 4)
+
+    Returns:
+        (lat, lon, aircraft_count, confidence) or None if insufficient data.
+        confidence is in [0, 1] — higher when more low-altitude aircraft
+        contribute (tighter constraint on position).
+    """
+    with tracker.lock:
+        positioned = [
+            ac for ac in tracker.aircraft.values()
+            if ac.has_position() and ac.altitude is not None
+        ]
+
+    if len(positioned) < min_aircraft:
+        return None
+
+    total_weight = 0.0
+    weighted_lat = 0.0
+    weighted_lon = 0.0
+    low_alt_count = 0  # aircraft below 15 000 ft
+
+    for ac in positioned:
+        alt = max(ac.altitude, 0.0)
+        weight = 1.0 / np.sqrt(alt + 500.0)
+        weighted_lat += ac.latitude * weight
+        weighted_lon += ac.longitude * weight
+        total_weight += weight
+        if alt < 15000.0:
+            low_alt_count += 1
+
+    if total_weight == 0.0:
+        return None
+
+    est_lat = weighted_lat / total_weight
+    est_lon = weighted_lon / total_weight
+
+    # Confidence heuristic:
+    #   - More aircraft → higher confidence (saturates at ~20)
+    #   - More low-altitude aircraft → higher confidence
+    n = len(positioned)
+    count_factor = min(n / 20.0, 1.0)            # 0..1
+    low_alt_factor = min(low_alt_count / 5.0, 1.0)  # 0..1
+    confidence = 0.5 * count_factor + 0.5 * low_alt_factor
+
+    return (est_lat, est_lon, n, round(confidence, 2))
