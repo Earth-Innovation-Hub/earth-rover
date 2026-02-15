@@ -11,7 +11,7 @@ const VCS_CONFIG = {
     rosbridge_url: (window.VCS_BACKEND_CONFIG && window.VCS_BACKEND_CONFIG.rosbridge_url) || 'ws://192.168.1.7:9090',
     video_server_url: (window.VCS_BACKEND_CONFIG && window.VCS_BACKEND_CONFIG.video_server_url) || 'http://192.168.1.7:8080',
     update_intervals: {
-        disk_space: 30000,      // 30 seconds
+        system_info: 5000,      // 5 seconds (storage + CPU)
         recording_status: 10000, // 10 seconds
         ros_nodes: 5000,         // 5 seconds
         instruments: 50,         // 50ms (~20 FPS)
@@ -101,7 +101,7 @@ function toggleSection(sectionId) {
 
 // Initialize all sections as expanded
 window.addEventListener('DOMContentLoaded', function() {
-    ['instruments', 'diagnostics', 'cameras', 'sensors', 'pointcloud', 'aircraft'].forEach(function(section) {
+    ['avionics-cameras', 'diagnostics', 'sensors', 'pointcloud', 'aircraft', 'system-recording'].forEach(function(section) {
         const content = document.getElementById(section + '-content');
         if (content) {
             content.style.maxHeight = content.scrollHeight + 'px';
@@ -116,35 +116,49 @@ window.addEventListener('DOMContentLoaded', function() {
 });
 
 // ============================================
-// DISK SPACE MONITORING
+// SYSTEM INFO (Storage + CPU)
 // ============================================
-function updateDiskSpace() {
-    fetch('/api/disk-space/')
+function updateSystemInfo() {
+    fetch('/api/system-info/')
         .then(response => response.json())
         .then(data => {
-            if (data.status === 'ok') {
-                document.getElementById('disk-used').textContent = data.used_gb + ' GB';
-                document.getElementById('disk-free').textContent = data.free_gb + ' GB';
-                document.getElementById('disk-total').textContent = data.total_gb + ' GB';
-                
-                const diskBar = document.getElementById('disk-bar');
-                diskBar.style.width = data.used_percent + '%';
-                
-                diskBar.className = 'disk-bar';
-                if (data.used_percent < 70) {
-                    diskBar.classList.add('low');
-                } else if (data.used_percent < 90) {
-                    diskBar.classList.add('medium');
-                } else {
-                    diskBar.classList.add('high');
-                }
+            if (data.status !== 'ok') return;
+            var disk = data.disk || {};
+            // Storage
+            var usedGb = disk.used_gb != null ? disk.used_gb + ' GB' : '--';
+            var freeGb = disk.free_gb != null ? disk.free_gb + ' GB' : '--';
+            var totalGb = disk.total_gb != null ? disk.total_gb + ' GB' : '--';
+            var usedPct = disk.used_percent != null ? disk.used_percent : 0;
+            document.getElementById('disk-used').textContent = usedGb;
+            document.getElementById('disk-free').textContent = freeGb;
+            document.getElementById('disk-total').textContent = totalGb;
+            var diskBar = document.getElementById('disk-bar');
+            diskBar.style.width = usedPct + '%';
+            diskBar.className = 'disk-bar';
+            if (usedPct < 70) diskBar.classList.add('low');
+            else if (usedPct < 90) diskBar.classList.add('medium');
+            else diskBar.classList.add('high');
+            // CPU
+            var cpuEl = document.getElementById('cpu-percent');
+            var cpuBar = document.getElementById('cpu-bar');
+            if (data.cpu_percent != null && cpuEl && cpuBar) {
+                var pct = Math.min(100, Math.max(0, data.cpu_percent));
+                cpuEl.textContent = pct.toFixed(1) + ' %';
+                cpuBar.style.width = pct + '%';
+                cpuBar.className = 'cpu-bar';
+                if (pct < 60) cpuBar.classList.add('low');
+                else if (pct < 85) cpuBar.classList.add('medium');
+                else cpuBar.classList.add('high');
+            } else if (cpuEl) {
+                cpuEl.textContent = '--';
+                if (cpuBar) cpuBar.style.width = '0%';
             }
         })
-        .catch(error => console.error('Error fetching disk space:', error));
+        .catch(function(err) { console.error('Error fetching system info:', err); });
 }
 
-updateDiskSpace();
-setInterval(updateDiskSpace, VCS_CONFIG.update_intervals.disk_space);
+updateSystemInfo();
+setInterval(updateSystemInfo, VCS_CONFIG.update_intervals.system_info);
 
 // ============================================
 // RECORDING CONTROLS
@@ -460,14 +474,10 @@ if (aircraftMap) {
     }).addTo(aircraftMap);
 }
 
-// Subscribe to mavros GPS for rover position
-const roverGpsListener = new ROSLIB.Topic({
-    ros: ros,
-    name: '/mavros/global_position/raw/fix',
-    messageType: 'sensor_msgs/NavSatFix'
-});
-
-roverGpsListener.subscribe(function(message) {
+// Subscribe to MAVROS global position for rover (same topic as ADS-B state vectors / 2D plot origin).
+// Note: /global only publishes when satellite count >= 15; /raw/fix publishes with any GPS fix.
+// Subscribe to both so rover pose shows even with fewer satellites.
+function updateRoverPositionFromNavSatFix(message) {
     if (!aircraftMap) return;
 
     const now = Date.now();
@@ -477,7 +487,10 @@ roverGpsListener.subscribe(function(message) {
     const lat = message.latitude;
     const lon = message.longitude;
 
+    // Ignore invalid fixes (0,0 or NaN). status < 0 = NO_FIX; 0 = FIX, 1 = SBAS, 2 = GBAS
     if (lat === 0 && lon === 0) return;
+    if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) return;
+    if (message.status && typeof message.status.status === 'number' && message.status.status < 0) return;  // Reject NO_FIX only
 
     // Update rover path
     roverPathCoords.push([lat, lon]);
@@ -513,12 +526,28 @@ roverGpsListener.subscribe(function(message) {
         posDisplay.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
     }
 
-    // Center map on rover on first fix (if no aircraft has centered it yet)
+    // Center situational awareness map on trike when position is first available
     if (!roverMapCentered) {
         aircraftMap.setView([lat, lon], 11);
         roverMapCentered = true;
     }
+}
+
+// Primary: fused estimate (publishes only when sats >= 15)
+const roverGpsGlobal = new ROSLIB.Topic({
+    ros: ros,
+    name: '/mavros/global_position/global',
+    messageType: 'sensor_msgs/NavSatFix'
 });
+roverGpsGlobal.subscribe(updateRoverPositionFromNavSatFix);
+
+// Fallback: raw GPS (publishes with any fix, more reliable when sats < 15)
+const roverGpsRaw = new ROSLIB.Topic({
+    ros: ros,
+    name: '/mavros/global_position/raw/fix',
+    messageType: 'sensor_msgs/NavSatFix'
+});
+roverGpsRaw.subscribe(updateRoverPositionFromNavSatFix);
 
 // --- ADS-B estimated receiver position ---
 const estimatedPosIcon = L.divIcon({
@@ -901,11 +930,7 @@ aircraftPositionListener.subscribe(function(message) {
         }
     }
 
-    // Center map on first aircraft only if rover hasn't centered it yet
-    if (!aircraftMapCentered && !roverMapCentered) {
-        aircraftMap.setView([lat, lon], 9);
-        aircraftMapCentered = true;
-    }
+    // Do not center map on aircraft; map is centered only when trike position is available
 });
 
 // Subscribe to aircraft list (JSON: flight + radio per aircraft)

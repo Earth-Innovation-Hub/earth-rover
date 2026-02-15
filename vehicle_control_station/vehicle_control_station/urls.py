@@ -16,10 +16,22 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from django.views.generic import TemplateView
-from .views import ros_image_grid
+from .views import (
+    ros_image_grid,
+    system_info,
+    recording_status,
+    recording_start,
+    recording_stop,
+    ros_nodes,
+)
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', TemplateView.as_view(template_name='home.html'), name='home'),
     path('ros-image/', ros_image_grid, name='ros_image_grid'),
-  
+    path('api/system-info/', system_info, name='system_info'),
+    path('api/recording/status/', recording_status, name='recording_status'),
+    path('api/recording/start/', recording_start, name='recording_start'),
+    path('api/recording/stop/', recording_stop, name='recording_stop'),
+    path('api/ros-nodes/', ros_nodes, name='ros_nodes'),
 ]

@@ -29,90 +29,30 @@
         </div>
         
         <!-- ============================================
-             COMPACT AVIONICS INSTRUMENTS
+             AVIONICS & CAMERA FEEDS (fused)
              ============================================ -->
         <div class="section">
-            <div class="section-title" onclick="toggleSection('instruments')">
-                <span>⚙️ Avionics Instruments</span>
+            <div class="section-title" onclick="toggleSection('avionics-cameras')">
+                <span>⚙️ Avionics & Camera Feeds</span>
                 <span class="section-toggle">▼</span>
             </div>
-            <div id="instruments-content" class="section-content">
-                <!-- Compact Control Panel -->
-                <div class="control-panel" style="margin-bottom: 15px;">
-                    <!-- Disk Space Widget -->
-                    <div class="widget disk-space-widget">
-                        <div>
-                            <div class="text-muted" style="font-size: 0.75em; margin-bottom: 5px;">Storage Capacity</div>
-                            <div class="disk-bar-container">
-                                <div id="disk-bar" class="disk-bar low" style="width: 0%;"></div>
-                            </div>
-                            <div class="disk-info mt-1">
-                                <div class="disk-info-item">
-                                    <div class="disk-label">Used</div>
-                                    <div id="disk-used" class="disk-value">--</div>
-                                </div>
-                                <div class="disk-info-item">
-                                    <div class="disk-label">Free</div>
-                                    <div id="disk-free" class="disk-value">--</div>
-                                </div>
-                                <div class="disk-info-item">
-                                    <div class="disk-label">Total</div>
-                                    <div id="disk-total" class="disk-value">--</div>
-                                </div>
-                            </div>
+            <div id="avionics-cameras-content" class="section-content">
+                <!-- Row 1: Avionics left | Camera feeds | Avionics right -->
+                <div class="fused-avionics-cameras-row">
+                    <div class="avionics-side avionics-left">
+                        <div class="instrument-mini">
+                            <canvas id="attitude-mini" width="200" height="200"></canvas>
+                            <div class="label">Attitude</div>
+                            <div class="value" id="pitch-value">P: 0.0° R: 0.0°</div>
+                        </div>
+                        <div class="instrument-mini">
+                            <canvas id="heading-mini" width="200" height="200"></canvas>
+                            <div class="label">Heading</div>
+                            <div class="value" id="heading-value">0.0°</div>
                         </div>
                     </div>
-                    
-                    <!-- Recording Controls -->
-                    <div class="widget recording-controls">
-                        <div class="recording-title">📹 Rosbag Recording</div>
-                        <div class="recording-buttons">
-                            <button id="start-recording-btn" class="btn btn-danger" onclick="startRecording()">
-                                Start Recording
-                            </button>
-                            <button id="stop-recording-btn" class="btn btn-secondary" onclick="stopRecording()" disabled>
-                                Stop Recording
-                            </button>
-                            <div id="recording-status" class="recording-status idle">Idle</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="instruments-compact">
-                    <div class="instrument-mini">
-                        <canvas id="attitude-mini" width="200" height="200"></canvas>
-                        <div class="label">Attitude</div>
-                        <div class="value" id="pitch-value">P: 0.0° R: 0.0°</div>
-                    </div>
-                    <div class="instrument-mini">
-                        <canvas id="heading-mini" width="200" height="200"></canvas>
-                        <div class="label">Heading</div>
-                        <div class="value" id="heading-value">0.0°</div>
-                    </div>
-                    <div class="instrument-mini">
-                        <canvas id="altitude-mini" width="200" height="200"></canvas>
-                        <div class="label">Altitude</div>
-                        <div class="value" id="altitude-value">0.0 m</div>
-                    </div>
-                    <div class="instrument-mini">
-                        <canvas id="laser-mini" width="200" height="200"></canvas>
-                        <div class="label">Range</div>
-                        <div class="value" id="laser-value">-- m</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- ============================================
-             CAMERA FEEDS
-             ============================================ -->
-        <div class="section">
-            <div class="section-title" onclick="toggleSection('cameras')">
-                <span>📹 Camera Feeds</span>
-                <span class="section-toggle">▼</span>
-            </div>
-            <div id="cameras-content" class="section-content">
-                <div class="grid grid-compact">
+                    <div class="cameras-center">
+                        <div class="grid grid-compact cameras-spectrometer-row" style="grid-template-columns: 1fr 1fr 1fr;">
                     <!-- Left Stereo Camera -->
                     <div class="card camera-card">
                         <h2>Left Stereo Camera</h2>
@@ -154,6 +94,41 @@
                         </div>
                         <div id="right-stereo-status" class="camera-status paused">Paused</div>
                     </div>
+                    
+                    <!-- Spectrometer -->
+                    <div class="card camera-card">
+                        <h2>Spectrometer</h2>
+                        <div class="camera-controls">
+                            <button class="camera-btn" onclick="toggleCamera('spectrometer-plot')">▶ Play</button>
+                            <select id="spectrometer-plot-quality" onchange="updateCameraQuality('spectrometer-plot')" style="font-size: 0.75em; padding: 4px;">
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="low">Low</option>
+                                <option value="snapshot">Snapshot</option>
+                            </select>
+                        </div>
+                        <div id="spectrometer-plot-container" class="camera-container">
+                            <div class="camera-placeholder" onclick="startCamera('spectrometer-plot')">
+                                <div class="camera-placeholder-icon">📊</div>
+                                <div>Click to Start</div>
+                            </div>
+                        </div>
+                        <div id="spectrometer-plot-status" class="camera-status paused">Paused</div>
+                    </div>
+                        </div>
+                    </div>
+                    <div class="avionics-side avionics-right">
+                        <div class="instrument-mini">
+                            <canvas id="altitude-mini" width="200" height="200"></canvas>
+                            <div class="label">Altitude</div>
+                            <div class="value" id="altitude-value">0.0 m</div>
+                        </div>
+                        <div class="instrument-mini">
+                            <canvas id="laser-mini" width="200" height="200"></canvas>
+                            <div class="label">Range</div>
+                            <div class="value" id="laser-value">-- m</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -170,8 +145,8 @@
                 <span class="section-toggle">&#9660;</span>
             </div>
             <div id="aircraft-content" class="section-content">
-                <!-- Row 1: map and 2D plot side by side -->
-                <div class="grid grid-compact aircraft-top-row" style="grid-template-columns: 1fr 1fr; gap: 10px;">
+                <!-- Row: map | 2D plot | Tracked Aircraft (right) -->
+                <div class="grid grid-compact aircraft-top-row" style="grid-template-columns: 1fr 1fr 0.85fr; gap: 10px;">
                     <div class="card aircraft-map-card">
                         <h2 class="card-title-sm">Situational Awareness Map</h2>
                         <div class="text-muted mb-1" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 0.75em;">
@@ -213,14 +188,13 @@
                         </div>
                         <div id="adsb-plot-status" class="camera-status paused">Paused</div>
                     </div>
-                </div>
-                <!-- Row 2: aircraft list table full width -->
-                <div class="card aircraft-table-card mt-2">
-                    <h2 class="card-title-sm">Tracked Aircraft</h2>
-                    <div id="aircraft-list-container" class="aircraft-list-scroll aircraft-list-under">
-                        <div class="text-center text-muted" style="padding: 24px 0; font-size: 0.75em;">Waiting for ADS-B data...</div>
+                    <div class="card aircraft-table-card">
+                        <h2 class="card-title-sm">Tracked Aircraft</h2>
+                        <div id="aircraft-list-container" class="aircraft-list-scroll aircraft-list-under">
+                            <div class="text-center text-muted" style="padding: 24px 0; font-size: 0.75em;">Waiting for ADS-B data...</div>
+                        </div>
+                        <div class="text-muted" style="font-size: 0.65em; margin-top: 4px;">Rate=msg/s, Age=s, Q=%, Pos/Vel=fix</div>
                     </div>
-                    <div class="text-muted" style="font-size: 0.65em; margin-top: 4px;">Rate=msg/s, Age=s, Q=%, Pos/Vel=fix</div>
                 </div>
             </div>
         </div>
@@ -245,27 +219,6 @@
                         </div>
                     </div>
                     
-                    <!-- Spectrometer -->
-                    <div class="card camera-card">
-                        <h2>Spectrometer</h2>
-                        <div class="camera-controls">
-                            <button class="camera-btn" onclick="toggleCamera('spectrometer-plot')">▶ Play</button>
-                            <select id="spectrometer-plot-quality" onchange="updateCameraQuality('spectrometer-plot')" style="font-size: 0.75em; padding: 4px;">
-                                <option value="medium" selected>Medium</option>
-                                <option value="high">High</option>
-                                <option value="low">Low</option>
-                                <option value="snapshot">Snapshot</option>
-                            </select>
-                        </div>
-                        <div id="spectrometer-plot-container" class="camera-container">
-                            <div class="camera-placeholder" onclick="startCamera('spectrometer-plot')">
-                                <div class="camera-placeholder-icon">📊</div>
-                                <div>Click to Start</div>
-                            </div>
-                        </div>
-                        <div id="spectrometer-plot-status" class="camera-status paused">Paused</div>
-                    </div>
-                    
                     <!-- Velodyne 3D Point Cloud -->
                     <div class="card">
                         <h2>🎯 Velodyne 3D Point Cloud</h2>
@@ -281,6 +234,63 @@
                         </div>
                         <div class="text-muted mt-1 text-center">
                             Use mouse to rotate, scroll to zoom, right-click to pan
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ============================================
+             SYSTEM INFO & ROSBAG (bottom, before diagnostics)
+             ============================================ -->
+        <div class="section">
+            <div class="section-title" onclick="toggleSection('system-recording')">
+                <span>💾 System Info & Rosbag</span>
+                <span class="section-toggle">▼</span>
+            </div>
+            <div id="system-recording-content" class="section-content">
+                <div class="system-recording-bottom">
+                    <div class="widget disk-space-widget">
+                        <div>
+                            <div class="text-muted" style="font-size: 0.75em; margin-bottom: 5px;">Storage</div>
+                            <div class="disk-bar-container">
+                                <div id="disk-bar" class="disk-bar low" style="width: 0%;"></div>
+                            </div>
+                            <div class="disk-info mt-1">
+                                <div class="disk-info-item">
+                                    <div class="disk-label">Used</div>
+                                    <div id="disk-used" class="disk-value">--</div>
+                                </div>
+                                <div class="disk-info-item">
+                                    <div class="disk-label">Free</div>
+                                    <div id="disk-free" class="disk-value">--</div>
+                                </div>
+                                <div class="disk-info-item">
+                                    <div class="disk-label">Total</div>
+                                    <div id="disk-total" class="disk-value">--</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="widget cpu-widget">
+                        <div>
+                            <div class="text-muted" style="font-size: 0.75em; margin-bottom: 5px;">CPU Usage</div>
+                            <div class="cpu-bar-container">
+                                <div id="cpu-bar" class="cpu-bar" style="width: 0%;"></div>
+                            </div>
+                            <div class="cpu-value mt-1" id="cpu-percent">-- %</div>
+                        </div>
+                    </div>
+                    <div class="widget recording-controls">
+                        <div class="recording-title">📹 Rosbag Recording</div>
+                        <div class="recording-buttons">
+                            <button id="start-recording-btn" class="btn btn-danger" onclick="startRecording()">
+                                Start Recording
+                            </button>
+                            <button id="stop-recording-btn" class="btn btn-secondary" onclick="stopRecording()" disabled>
+                                Stop Recording
+                            </button>
+                            <div id="recording-status" class="recording-status idle">Idle</div>
                         </div>
                     </div>
                 </div>
