@@ -213,6 +213,34 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="grid grid-compact mt-2" style="grid-template-columns: 1fr 1fr;">
+                    <div class="card">
+                        <h2>ADS-B Radio Summary</h2>
+                        <div id="radio-summary-container" class="text-muted" style="font-size: 0.82em; margin-bottom: 8px;">
+                            Waiting for radio summary...
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
+                            <div>
+                                <div class="text-muted" style="font-size: 0.75em; margin-bottom: 4px;">Message Rate Histogram (Hz per aircraft)</div>
+                                <canvas id="radio-rate-hist-canvas" class="canvas-container" style="height: 120px;"></canvas>
+                            </div>
+                            <div>
+                                <div class="text-muted" style="font-size: 0.75em; margin-bottom: 4px;">Aircraft Age Histogram (s since seen)</div>
+                                <canvas id="radio-age-hist-canvas" class="canvas-container" style="height: 120px;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h2>Aircraft Radio Characteristics</h2>
+                        <div id="radio-aircraft-container" style="max-height: 300px; overflow-y: auto; font-size: 0.78em;">
+                            <div class="text-center text-muted" style="padding: 30px 0;">
+                                Waiting for aircraft radio metrics...
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 

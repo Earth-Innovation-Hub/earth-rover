@@ -627,6 +627,7 @@ def estimate_receiver_position(
             if age_s > active_window_s:
                 continue
             samples.append({
+                'icao': ac.icao_address,
                 'lat': float(ac.latitude),
                 'lon': float(ac.longitude),
                 'alt_ft': max(0.0, alt_ft),
@@ -678,6 +679,9 @@ def estimate_receiver_position(
         inlier_mask = np.ones_like(r0, dtype=bool)
 
     rejected = int(np.sum(~inlier_mask))
+    used_icaos = [
+        samples[i]['icao'] for i in range(len(samples)) if bool(inlier_mask[i])
+    ]
     x_in = x[inlier_mask]
     y_in = y[inlier_mask]
     w_in = w0[inlier_mask]
@@ -742,6 +746,7 @@ def estimate_receiver_position(
         'lat': round(est_lat, 6),
         'lon': round(est_lon, 6),
         'aircraft_used': int(n),
+        'used_icaos': used_icaos,
         'low_alt_used': int(low_alt_count),
         'rejected_outliers': int(rejected),
         'median_age_s': round(median_age, 1),

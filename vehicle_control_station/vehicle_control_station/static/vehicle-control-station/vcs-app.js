@@ -546,6 +546,8 @@ estimatedPosListener.subscribe(function(message) {
         const lowAltUsed = data.low_alt_used;
         const rejectedOutliers = data.rejected_outliers;
         const medianAgeS = data.median_age_s;
+        const radioQualityMean = data.radio_quality_mean;
+        const kfSigmaScale = data.kf_sigma_scale;
 
         if (lat == null || lon == null) return;
 
@@ -594,6 +596,12 @@ estimatedPosListener.subscribe(function(message) {
             '<div style="color: #888;">Rejected outliers: ' + (rejectedOutliers != null ? rejectedOutliers : '--') + '</div>' +
             '<div style="color: #888;">Median age: ' + (medianAgeS != null ? medianAgeS + ' s' : '--') + '</div>' +
             '<div style="color: #888;">Confidence: ' + Math.round(confidence * 100) + '%</div>' +
+            '<div style="color: #888;">Radio quality mean: ' +
+                (radioQualityMean != null ? Math.round(radioQualityMean * 100) + '%' : '--') +
+                '</div>' +
+            '<div style="color: #888;">KF sigma scale: ' +
+                (kfSigmaScale != null ? kfSigmaScale.toFixed(2) : '--') +
+                '</div>' +
             '<div style="color: #888;">σ major/minor: ' +
                 (sigmaMajorKm != null ? sigmaMajorKm.toFixed(1) : '--') + '/' +
                 (sigmaMinorKm != null ? sigmaMinorKm.toFixed(1) : '--') + ' km</div>' +
@@ -607,11 +615,166 @@ estimatedPosListener.subscribe(function(message) {
         if (estDisplay) {
             estDisplay.textContent = (useKalmanEstimate ? 'KF: ' : 'RAW: ') +
                 lat.toFixed(5) + ', ' + lon.toFixed(5) +
-                ' (' + Math.round(confidence * 100) + '%, ' + count + ' ac)';
+                ' (' + Math.round(confidence * 100) + '%, ' + count + ' ac' +
+                (radioQualityMean != null ? ', RQ ' + Math.round(radioQualityMean * 100) + '%' : '') +
+                (kfSigmaScale != null ? ', σx' + kfSigmaScale.toFixed(2) : '') +
+                ')';
         }
 
     } catch (e) {
         console.error('Error parsing estimated position:', e);
+    }
+});
+
+// --- ADS-B radio telemetry ---
+function drawHistogramCanvas(canvasId, edges, counts, color) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !edges || !counts || counts.length === 0) return;
+    const width = canvas.parentElement ? canvas.parentElement.clientWidth : 300;
+    const height = 120;
+    canvas.width = Math.max(220, width - 4);
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#121825';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const left = 28;
+    const bottom = height - 20;
+    const right = canvas.width - 6;
+    const top = 8;
+    const plotW = right - left;
+    const plotH = bottom - top;
+    const n = counts.length;
+    const maxCount = Math.max(1, ...counts);
+    const barW = plotW / Math.max(1, n);
+
+    // axes
+    ctx.strokeStyle = '#2a3345';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(left, top);
+    ctx.lineTo(left, bottom);
+    ctx.lineTo(right, bottom);
+    ctx.stroke();
+
+    // bars
+    for (let i = 0; i < n; i++) {
+        const h = (counts[i] / maxCount) * (plotH - 4);
+        const x = left + i * barW + 2;
+        const y = bottom - h;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.78;
+        ctx.fillRect(x, y, Math.max(2, barW - 4), h);
+        ctx.globalAlpha = 1.0;
+
+        // bin labels
+        const label = `${edges[i]}-${edges[i + 1]}`;
+        ctx.fillStyle = '#7f8aa3';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, x + (barW - 4) / 2, bottom + 10);
+    }
+
+    // y labels
+    ctx.fillStyle = '#7f8aa3';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('0', left - 4, bottom);
+    ctx.fillText(String(maxCount), left - 4, top + 8);
+}
+
+function renderRadioSummary(data) {
+    const container = document.getElementById('radio-summary-container');
+    if (!container) return;
+    const total = data.total_aircraft || 0;
+    const active = data.active_aircraft_lt10s || 0;
+    const rate = data.global_msg_rate_hz || 0;
+    const medianRate = data.median_aircraft_rate_hz || 0;
+    const medianAge = data.median_age_s || 0;
+    const quality = data.mean_quality_pct || 0;
+    container.innerHTML =
+        `<div>Mode: <span style="color:#4a9eff">${escapeHtml(String(data.mode || '--'))}</span></div>` +
+        `<div>Aircraft: <span style="color:#4a9eff">${total}</span> (active&lt;10s: ${active})</div>` +
+        `<div>Global msg rate: <span style="color:#4a9eff">${rate.toFixed(2)} Hz</span></div>` +
+        `<div>Median per-aircraft rate: ${medianRate.toFixed(3)} Hz | Median age: ${medianAge.toFixed(1)} s</div>` +
+        `<div>Mean radio quality proxy: ${quality.toFixed(1)}%</div>`;
+
+    if (data.rate_hist) {
+        drawHistogramCanvas(
+            'radio-rate-hist-canvas',
+            data.rate_hist.edges || [],
+            data.rate_hist.counts || [],
+            '#4a9eff'
+        );
+    }
+    if (data.age_hist) {
+        drawHistogramCanvas(
+            'radio-age-hist-canvas',
+            data.age_hist.edges || [],
+            data.age_hist.counts || [],
+            '#00e676'
+        );
+    }
+}
+
+function renderAircraftRadio(data) {
+    const container = document.getElementById('radio-aircraft-container');
+    if (!container) return;
+    const aircraft = data.aircraft || [];
+    if (aircraft.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted" style="padding: 30px 0;">No radio aircraft metrics yet</div>';
+        return;
+    }
+
+    let html = '<table class="aircraft-table"><thead><tr>';
+    html += '<th>ICAO</th><th>Call</th><th>Rate</th><th>Age</th><th>Q</th><th>Pos</th><th>Vel</th>';
+    html += '</tr></thead><tbody>';
+    aircraft.slice(0, 60).forEach(function(a) {
+        const q = a.radio_quality_pct != null ? a.radio_quality_pct : 0;
+        html += '<tr>';
+        html += `<td class="icao-cell">${escapeHtml(String(a.icao || '--'))}</td>`;
+        html += `<td class="callsign-cell">${escapeHtml(String(a.callsign || '--'))}</td>`;
+        html += `<td class="speed-cell">${(a.msg_rate_hz || 0).toFixed(2)} Hz</td>`;
+        html += `<td class="age-cell">${(a.age_s || 0).toFixed(1)} s</td>`;
+        html += `<td class="heading-cell">${q}%</td>`;
+        html += `<td class="alt-cell">${a.has_position ? 'Y' : '-'}</td>`;
+        html += `<td class="alt-cell">${a.has_speed && a.has_heading ? 'Y' : '-'}</td>`;
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+const radioSummaryListener = new ROSLIB.Topic({
+    ros: ros,
+    name: '/adsb/rtl_adsb_decoder_node/radio_summary',
+    messageType: 'std_msgs/String'
+});
+
+radioSummaryListener.subscribe(function(message) {
+    try {
+        const data = JSON.parse(message.data);
+        renderRadioSummary(data);
+    } catch (e) {
+        console.error('Error parsing radio summary:', e);
+    }
+});
+
+const aircraftRadioListener = new ROSLIB.Topic({
+    ros: ros,
+    name: '/adsb/rtl_adsb_decoder_node/aircraft_radio',
+    messageType: 'std_msgs/String'
+});
+
+aircraftRadioListener.subscribe(function(message) {
+    try {
+        const data = JSON.parse(message.data);
+        renderAircraftRadio(data);
+    } catch (e) {
+        console.error('Error parsing aircraft radio:', e);
     }
 });
 
