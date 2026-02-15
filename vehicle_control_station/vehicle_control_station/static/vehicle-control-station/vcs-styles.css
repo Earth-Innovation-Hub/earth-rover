@@ -669,12 +669,62 @@ body {
 /* ============================================
    ADS-B AIRCRAFT TRACKING
    ============================================ */
-#aircraft-map {
+#aircraft-map,
+.aircraft-map-area {
     height: 450px;
     width: 100%;
     border-radius: 4px;
     border: 1px solid var(--border-color);
     background: #0a0e1a;
+}
+
+/* Aircraft section: row 1 = map | 2D plot, row 2 = table full width */
+.aircraft-top-row {
+    display: grid;
+    align-items: start;
+}
+.aircraft-map-card,
+.aircraft-plot-card { padding: 10px; }
+.aircraft-plot-container {
+    min-height: 450px;
+    height: 450px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
+}
+.aircraft-plot-container .camera-placeholder { min-height: 450px; }
+.aircraft-plot-container img {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    object-position: center;
+}
+.card-title-sm {
+    margin: 0 0 6px 0;
+    font-size: 0.88em;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+.aircraft-table-card .card-title-sm { margin-bottom: 6px; }
+.aircraft-list-scroll {
+    max-height: 320px;
+    overflow-y: auto;
+    font-size: 0.72em;
+}
+.aircraft-list-under { max-height: 280px; }
+.aircraft-list-scroll .aircraft-table { font-size: 0.72em; }
+.aircraft-list-scroll .aircraft-table th,
+.aircraft-list-scroll .aircraft-table td { padding: 4px 6px; }
+.mt-2 { margin-top: 10px; }
+@media (max-width: 900px) {
+    .aircraft-top-row { grid-template-columns: 1fr !important; }
+    #aircraft-map, .aircraft-map-area { height: 380px; }
+    .aircraft-plot-container { min-height: 380px; height: 380px; }
+    .aircraft-plot-container .camera-placeholder { min-height: 380px; }
+    .aircraft-plot-container img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
 }
 
 .aircraft-table {

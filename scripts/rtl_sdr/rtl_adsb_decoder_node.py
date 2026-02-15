@@ -15,9 +15,11 @@ Uses shared components from sdr_adsb_common for aircraft tracking,
 IQ demodulation, and pyModeS decoding.
 
 Topics Published:
-  ~/aircraft      (sensor_msgs/NavSatFix): Individual aircraft position
-  ~/aircraft_list (std_msgs/String): Summary of all tracked aircraft
-  ~/messages      (std_msgs/String): Raw decoded messages (optional)
+  ~/aircraft       (sensor_msgs/NavSatFix): Individual aircraft position
+  ~/aircraft_list  (std_msgs/String): JSON list of all tracked aircraft with flight + radio details
+  ~/radio_summary  (std_msgs/String): JSON global radio summary and histograms
+  ~/estimated_position (std_msgs/String): JSON receiver position estimate (KF)
+  ~/messages       (std_msgs/String): Raw decoded messages (optional)
 
 Parameters:
   mode (string): 'dump1090' or 'iq' [dump1090]
@@ -26,6 +28,7 @@ Parameters:
   device_index (int): RTL-SDR device index [0]
   gain (float): Tuner gain in dB, -1 for auto [-1]
   enable_interactive (bool): Enable dump1090 interactive display [false]
+  dump1090_http_port (int): dump1090 web map HTTP port [8082] (8080 = default dump1090)
   publish_raw_messages (bool): Publish raw decoded messages [false]
   max_aircraft (int): Maximum tracked aircraft [200]
   aircraft_timeout (float): Stale aircraft timeout in seconds [60.0]
@@ -55,7 +58,7 @@ from sensor_msgs.msg import NavSatFix
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sdr_adsb_common import (
     Aircraft, AircraftTracker, ADSBIQDemodulator, PyModeSDecoder,
-    PYMODES_AVAILABLE, publish_aircraft_navsatfix, publish_aircraft_list_string,
+    PYMODES_AVAILABLE, publish_aircraft_navsatfix,
     estimate_receiver_position,
 )
 
@@ -76,6 +79,7 @@ class RTLADSBDecoderNode(Node):
         self.declare_parameter('device_index', 0)
         self.declare_parameter('gain', -1.0)
         self.declare_parameter('enable_interactive', False)
+        self.declare_parameter('dump1090_http_port', 8082)  # dump1090 web map port (8080 often used by others)
         self.declare_parameter('publish_raw_messages', False)
         self.declare_parameter('max_aircraft', 200)
         self.declare_parameter('aircraft_timeout', 60.0)
@@ -92,6 +96,7 @@ class RTLADSBDecoderNode(Node):
         self.device_index = self.get_parameter('device_index').value
         self.gain = self.get_parameter('gain').value
         self.enable_interactive = self.get_parameter('enable_interactive').value
+        self.dump1090_http_port = int(self.get_parameter('dump1090_http_port').value)
         self.publish_raw = self.get_parameter('publish_raw_messages').value
         max_aircraft = self.get_parameter('max_aircraft').value
         timeout = self.get_parameter('aircraft_timeout').value
@@ -155,8 +160,6 @@ class RTLADSBDecoderNode(Node):
             String, '~/estimated_position', 10)
         self.radio_summary_pub = self.create_publisher(
             String, '~/radio_summary', 10)
-        self.aircraft_radio_pub = self.create_publisher(
-            String, '~/aircraft_radio', 10)
         self.reference_gps_sub = self.create_subscription(
             NavSatFix, self.reference_gps_topic, self._reference_gps_callback, 10)
         if self.publish_raw:
@@ -198,15 +201,12 @@ class RTLADSBDecoderNode(Node):
         # controls how long they stay; default 60s = 1 minute of no data).
         self.cleanup_timer = self.create_timer(
             5.0, self._cleanup_callback)
-        # Publish aircraft list + re-broadcast all positions every 2 seconds.
+        # Publish aircraft list (flight + radio) and radio summary every 2 s; re-broadcast positions.
         self.publish_timer = self.create_timer(
             2.0, self._publish_list_callback)
         # Estimate receiver position from aircraft constellation every 5s.
         self.estimate_timer = self.create_timer(
             5.0, self._estimate_position_callback)
-        # Publish aircraft-level radio telemetry every 2s.
-        self.radio_timer = self.create_timer(
-            2.0, self._publish_radio_metrics_callback)
 
         # ====================================================================
         # Startup log
@@ -260,6 +260,17 @@ class RTLADSBDecoderNode(Node):
 
         cmd.append('--net')
         cmd.extend(['--net-sbs-port', '30003'])
+
+        # Use a different HTTP port so 8080 is free (e.g. for web_video_server or other tools)
+        if self.dump1090_http_port != 8080:
+            if 'net-http-port' in supported_flags:
+                cmd.extend(['--net-http-port', str(self.dump1090_http_port)])
+            elif 'web-server-port' in supported_flags:
+                cmd.extend(['--web-server-port', str(self.dump1090_http_port)])
+            else:
+                self.get_logger().warn(
+                    'dump1090 does not support --net-http-port or --web-server-port; '
+                    'web map will use default port 8080')
 
         if not self.enable_interactive:
             if 'quiet' in supported_flags:
@@ -325,7 +336,8 @@ class RTLADSBDecoderNode(Node):
                 capture_output=True, text=True, timeout=3.0)
             help_text = result.stdout + result.stderr
             for flag in ['quiet', 'enable-agc', 'aggressive',
-                         'net-only', 'metric', 'no-fix']:
+                         'net-only', 'metric', 'no-fix',
+                         'net-http-port', 'web-server-port']:
                 if f'--{flag}' in help_text:
                     supported.add(flag)
             self.get_logger().info(
@@ -520,169 +532,6 @@ class RTLADSBDecoderNode(Node):
         while ts_deque and ts_deque[0] < cutoff_t:
             ts_deque.popleft()
 
-    def _publish_radio_metrics_callback(self):
-        """Publish aircraft-level radio diagnostics and summary histograms."""
-        import json
-
-        now = time.time()
-        cutoff = now - self._radio_window_s
-
-        with self._radio_lock:
-            # prune old timestamps
-            for st in self._radio_stats.values():
-                self._prune_ts_deque(st['all_ts'], cutoff)
-                for d in st['type_ts'].values():
-                    self._prune_ts_deque(d, cutoff)
-
-            # prune empty/stale aircraft stats
-            stale_keys = []
-            for icao, st in self._radio_stats.items():
-                if len(st['all_ts']) == 0 and (now - st['last_seen']) > self._radio_window_s:
-                    stale_keys.append(icao)
-            for icao in stale_keys:
-                del self._radio_stats[icao]
-
-            # snapshot to avoid holding lock during tracker read
-            radio_snapshot = {}
-            for icao, st in self._radio_stats.items():
-                radio_snapshot[icao] = {
-                    'msg_count': len(st['all_ts']),
-                    'id_count': len(st['type_ts']['1']),
-                    'pos_count': len(st['type_ts']['3']) + len(st['type_ts']['5']),
-                    'vel_count': len(st['type_ts']['4']),
-                    'sq_count': len(st['type_ts']['6']),
-                    'last_seen': st['last_seen'],
-                    'callsign': st['callsign'],
-                }
-
-        # merge with tracker data for aircraft state fields
-        with self.tracker.lock:
-            tracker_snapshot = {}
-            for icao, ac in self.tracker.aircraft.items():
-                tracker_snapshot[icao] = {
-                    'callsign': ac.callsign,
-                    'altitude': ac.altitude,
-                    'speed': ac.speed,
-                    'heading': ac.heading,
-                    'has_position': ac.has_position(),
-                    'last_update': ac.last_update,
-                }
-
-        aircraft_rows = []
-        for icao, rs in radio_snapshot.items():
-            tr = tracker_snapshot.get(icao, {})
-            age_s = max(0.0, now - rs['last_seen'])
-            msg_rate_hz = rs['msg_count'] / self._radio_window_s
-            pos_rate_hz = rs['pos_count'] / self._radio_window_s
-            vel_rate_hz = rs['vel_count'] / self._radio_window_s
-            id_rate_hz = rs['id_count'] / self._radio_window_s
-            has_position = bool(tr.get('has_position', False))
-            has_speed = tr.get('speed') is not None
-            has_heading = tr.get('heading') is not None
-
-            # RF quality proxy (dump1090/SBS has no direct per-frame RSSI).
-            freshness = max(0.0, 1.0 - age_s / 20.0)
-            rate_score = min(msg_rate_hz / 1.2, 1.0)
-            completeness = (
-                (0.4 if has_position else 0.0)
-                + (0.2 if has_speed else 0.0)
-                + (0.2 if has_heading else 0.0)
-                + (0.2 if (tr.get('callsign') or rs.get('callsign')) else 0.0)
-            )
-            radio_quality = max(
-                0.0, min(1.0, 0.45 * freshness + 0.35 * rate_score + 0.20 * completeness))
-
-            aircraft_rows.append({
-                'icao': icao,
-                'callsign': tr.get('callsign') or rs.get('callsign'),
-                'age_s': round(age_s, 1),
-                'msg_count_60s': int(rs['msg_count']),
-                'msg_rate_hz': round(msg_rate_hz, 3),
-                'pos_rate_hz': round(pos_rate_hz, 3),
-                'vel_rate_hz': round(vel_rate_hz, 3),
-                'id_rate_hz': round(id_rate_hz, 3),
-                'has_position': has_position,
-                'has_speed': has_speed,
-                'has_heading': has_heading,
-                'altitude_ft': tr.get('altitude'),
-                'speed_kts': tr.get('speed'),
-                'heading_deg': tr.get('heading'),
-                'radio_quality': round(radio_quality, 3),
-                'radio_quality_pct': int(round(radio_quality * 100.0)),
-                'rssi_dbfs': None,      # unavailable in dump1090 SBS mode
-                'snr_db': None,         # unavailable in dump1090 SBS mode
-            })
-
-        aircraft_rows.sort(key=lambda r: r['msg_rate_hz'], reverse=True)
-
-        rates = [r['msg_rate_hz'] for r in aircraft_rows]
-        ages = [r['age_s'] for r in aircraft_rows]
-        qualities = [r['radio_quality_pct'] for r in aircraft_rows]
-        total_msgs_60s = sum(r['msg_count_60s'] for r in aircraft_rows)
-
-        def hist_counts(values, edges):
-            counts = [0] * (len(edges) - 1)
-            for v in values:
-                placed = False
-                for i in range(len(edges) - 1):
-                    lo = edges[i]
-                    hi = edges[i + 1]
-                    if (i == len(edges) - 2 and v >= lo and v <= hi) or (v >= lo and v < hi):
-                        counts[i] += 1
-                        placed = True
-                        break
-                if not placed and len(counts) > 0:
-                    if v < edges[0]:
-                        counts[0] += 1
-                    else:
-                        counts[-1] += 1
-            return counts
-
-        rate_edges = [0.0, 0.1, 0.3, 0.7, 1.5, 5.0]
-        age_edges = [0.0, 2.0, 5.0, 10.0, 20.0, 60.0]
-        quality_edges = [0, 20, 40, 60, 80, 100]
-
-        summary = {
-            'mode': self.mode,
-            'window_s': self._radio_window_s,
-            'updated_at': round(now, 3),
-            'total_aircraft': len(aircraft_rows),
-            'active_aircraft_lt10s': sum(1 for r in aircraft_rows if r['age_s'] < 10.0),
-            'total_msgs_60s': int(total_msgs_60s),
-            'global_msg_rate_hz': round(total_msgs_60s / self._radio_window_s, 3),
-            'median_aircraft_rate_hz': round(float(np.median(rates)) if rates else 0.0, 3),
-            'median_age_s': round(float(np.median(ages)) if ages else 0.0, 2),
-            'mean_quality_pct': round(float(np.mean(qualities)) if qualities else 0.0, 1),
-            'rate_hist': {
-                'edges': rate_edges,
-                'counts': hist_counts(rates, rate_edges),
-            },
-            'age_hist': {
-                'edges': age_edges,
-                'counts': hist_counts(ages, age_edges),
-            },
-            'quality_hist': {
-                'edges': quality_edges,
-                'counts': hist_counts(qualities, quality_edges),
-            },
-            'fields_note': {
-                'rssi_dbfs': 'Not available in dump1090 SBS mode',
-                'snr_db': 'Not available in dump1090 SBS mode',
-            },
-        }
-
-        summary_msg = String()
-        summary_msg.data = json.dumps(summary)
-        self.radio_summary_pub.publish(summary_msg)
-
-        aircraft_msg = String()
-        aircraft_msg.data = json.dumps({
-            'mode': self.mode,
-            'window_s': self._radio_window_s,
-            'aircraft': aircraft_rows[:200],
-        })
-        self.aircraft_radio_pub.publish(aircraft_msg)
-
     # ====================================================================
     # IQ Mode (fallback)
     # ====================================================================
@@ -752,17 +601,140 @@ class RTLADSBDecoderNode(Node):
         self.decoder.prune_cpr_buffer()
 
     def _publish_list_callback(self):
-        """Periodically publish aircraft list AND re-publish all positions.
+        """Publish combined aircraft list (flight + radio) as JSON, radio summary, and re-broadcast positions."""
+        import json
 
-        This ensures the VCS (or any late subscriber) always receives
-        up-to-date positions for every tracked aircraft, not just when
-        a new SBS position message arrives from dump1090.
-        """
-        publish_aircraft_list_string(self.tracker, self.aircraft_list_pub)
+        now = time.time()
+        cutoff = now - self._radio_window_s
 
-        # Re-publish NavSatFix for every aircraft that has a position.
-        # The tracker lock is acquired inside aircraft_list_string() above
-        # and released, so acquire again here for the position sweep.
+        with self._radio_lock:
+            for st in self._radio_stats.values():
+                self._prune_ts_deque(st['all_ts'], cutoff)
+                for d in st['type_ts'].values():
+                    self._prune_ts_deque(d, cutoff)
+            stale_keys = [
+                icao for icao, st in self._radio_stats.items()
+                if len(st['all_ts']) == 0 and (now - st['last_seen']) > self._radio_window_s
+            ]
+            for icao in stale_keys:
+                del self._radio_stats[icao]
+            radio_snapshot = {}
+            for icao, st in self._radio_stats.items():
+                radio_snapshot[icao] = {
+                    'msg_count': len(st['all_ts']),
+                    'pos_count': len(st['type_ts']['3']) + len(st['type_ts']['5']),
+                    'vel_count': len(st['type_ts']['4']),
+                    'id_count': len(st['type_ts']['1']),
+                    'last_seen': st['last_seen'],
+                    'callsign': st['callsign'],
+                }
+
+        with self.tracker.lock:
+            tracker_list = list(self.tracker.aircraft.items())
+
+        aircraft_rows = []
+        for icao, ac in tracker_list:
+            rs = radio_snapshot.get(icao, {})
+            age_s = max(0.0, now - rs.get('last_seen', now))
+            msg_rate_hz = rs.get('msg_count', 0) / max(1.0, self._radio_window_s)
+            pos_rate_hz = rs.get('pos_count', 0) / max(1.0, self._radio_window_s)
+            vel_rate_hz = rs.get('vel_count', 0) / max(1.0, self._radio_window_s)
+            id_rate_hz = rs.get('id_count', 0) / max(1.0, self._radio_window_s)
+            has_position = ac.has_position()
+            has_speed = ac.speed is not None
+            has_heading = ac.heading is not None
+            freshness = max(0.0, 1.0 - age_s / 20.0)
+            rate_score = min(msg_rate_hz / 1.2, 1.0)
+            completeness = (
+                (0.4 if has_position else 0.0)
+                + (0.2 if has_speed else 0.0)
+                + (0.2 if has_heading else 0.0)
+                + (0.2 if (ac.callsign or rs.get('callsign')) else 0.0)
+            )
+            radio_quality = max(0.0, min(1.0, 0.45 * freshness + 0.35 * rate_score + 0.20 * completeness))
+
+            row = {
+                'icao': icao,
+                'callsign': ac.callsign or rs.get('callsign'),
+                'latitude': ac.latitude,
+                'longitude': ac.longitude,
+                'altitude': ac.altitude,
+                'speed': ac.speed,
+                'heading': ac.heading,
+                'vertical_rate': ac.vertical_rate,
+                'last_update': ac.last_update,
+                'has_position': has_position,
+                'has_speed': has_speed,
+                'has_heading': has_heading,
+                'age_s': round(age_s, 1),
+                'msg_count_60s': rs.get('msg_count', 0),
+                'msg_rate_hz': round(msg_rate_hz, 3),
+                'pos_rate_hz': round(pos_rate_hz, 3),
+                'vel_rate_hz': round(vel_rate_hz, 3),
+                'id_rate_hz': round(id_rate_hz, 3),
+                'radio_quality': round(radio_quality, 3),
+                'radio_quality_pct': int(round(radio_quality * 100.0)),
+                'rssi_dbfs': None,
+                'snr_db': None,
+            }
+            aircraft_rows.append(row)
+
+        aircraft_rows.sort(key=lambda r: (r['msg_rate_hz'], r.get('last_update') or 0), reverse=True)
+        aircraft_rows = aircraft_rows[:200]
+
+        # Publish combined aircraft list (flight + radio)
+        list_msg = String()
+        list_msg.data = json.dumps({
+            'tracked_count': len(tracker_list),
+            'updated_at': round(now, 3),
+            'window_s': self._radio_window_s,
+            'mode': self.mode,
+            'aircraft': aircraft_rows,
+        })
+        self.aircraft_list_pub.publish(list_msg)
+
+        # Radio summary (histograms and global stats)
+        rates = [r['msg_rate_hz'] for r in aircraft_rows]
+        ages = [r['age_s'] for r in aircraft_rows]
+        qualities = [r['radio_quality_pct'] for r in aircraft_rows]
+        total_msgs_60s = sum(r['msg_count_60s'] for r in aircraft_rows)
+
+        def hist_counts(values, edges):
+            counts = [0] * (len(edges) - 1)
+            for v in values:
+                for i in range(len(edges) - 1):
+                    if (i == len(edges) - 2 and edges[i] <= v <= edges[i + 1]) or (edges[i] <= v < edges[i + 1]):
+                        counts[i] += 1
+                        break
+                else:
+                    if counts:
+                        counts[0 if v < edges[0] else -1] += 1
+            return counts
+
+        rate_edges = [0.0, 0.1, 0.3, 0.7, 1.5, 5.0]
+        age_edges = [0.0, 2.0, 5.0, 10.0, 20.0, 60.0]
+        quality_edges = [0, 20, 40, 60, 80, 100]
+        summary = {
+            'mode': self.mode,
+            'window_s': self._radio_window_s,
+            'updated_at': round(now, 3),
+            'total_aircraft': len(aircraft_rows),
+            'active_aircraft_lt10s': sum(1 for r in aircraft_rows if r['age_s'] < 10.0),
+            'total_msgs_60s': int(total_msgs_60s),
+            'global_msg_rate_hz': round(total_msgs_60s / self._radio_window_s, 3),
+            'median_aircraft_rate_hz': round(float(np.median(rates)) if rates else 0.0, 3),
+            'median_age_s': round(float(np.median(ages)) if ages else 0.0, 2),
+            'mean_quality_pct': round(float(np.mean(qualities)) if qualities else 0.0, 1),
+            'rate_hist': {'edges': rate_edges, 'counts': hist_counts(rates, rate_edges)},
+            'age_hist': {'edges': age_edges, 'counts': hist_counts(ages, age_edges)},
+            'quality_hist': {'edges': quality_edges, 'counts': hist_counts(qualities, quality_edges)},
+            'fields_note': {'rssi_dbfs': 'Not available in dump1090 SBS mode', 'snr_db': 'Not available in dump1090 SBS mode'},
+        }
+        summary_msg = String()
+        summary_msg.data = json.dumps(summary)
+        self.radio_summary_pub.publish(summary_msg)
+
+        # Re-publish NavSatFix for every aircraft that has a position
         with self.tracker.lock:
             for ac in self.tracker.aircraft.values():
                 if ac.has_position():

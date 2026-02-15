@@ -75,6 +75,12 @@ def generate_launch_description():
         description='Path to dump1090 binary'
     )
 
+    dump1090_http_port_arg = DeclareLaunchArgument(
+        'dump1090_http_port',
+        default_value='8082',
+        description='dump1090 web map HTTP port (default 8082 to avoid conflict with 8080/8081)'
+    )
+
     publish_raw_arg = DeclareLaunchArgument(
         'publish_raw_messages',
         default_value='false',
@@ -211,6 +217,7 @@ def generate_launch_description():
         parameters=[{
             'mode': LaunchConfiguration('decoder_mode'),
             'dump1090_path': LaunchConfiguration('dump1090_path'),
+            'dump1090_http_port': LaunchConfiguration('dump1090_http_port'),
             'iq_topic': '/rtl_sdr/rtl_sdr_node/iq_samples',
             'device_index': LaunchConfiguration('device_index'),
             'gain': LaunchConfiguration('gain'),
@@ -259,6 +266,7 @@ def generate_launch_description():
         # Decoder config
         decoder_mode_arg,
         dump1090_path_arg,
+        dump1090_http_port_arg,
         publish_raw_arg,
         max_aircraft_arg,
         aircraft_timeout_arg,

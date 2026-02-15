@@ -79,8 +79,8 @@ nohup ros2 launch rosbridge_server rosbridge_websocket_launch.xml > "$LOG_DIR/ro
 echo "  └─ PID: $! (log: $LOG_DIR/rosbridge.log)"
 
 # 7. Web Video Server
-echo "[7/10] Starting Web Video Server..."
-nohup ros2 run web_video_server web_video_server > "$LOG_DIR/web_video_server.log" 2>&1 &
+echo "[7/10] Starting Web Video Server (port 8080)..."
+nohup ros2 run web_video_server web_video_server --ros-args -p port:=8080 > "$LOG_DIR/web_video_server.log" 2>&1 &
 echo "  └─ PID: $! (log: $LOG_DIR/web_video_server.log)"
 
 # 8. Velodyne LiDAR

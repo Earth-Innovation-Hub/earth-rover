@@ -59,6 +59,9 @@ install(PROGRAMS
   scripts/connect_pixhawk.sh
   scripts/test_gps_publisher.py
   scripts/deepgis_telemetry_publisher.py
+  scripts/adsb_aircraft_state_vectors_node.py
+  scripts/adsb_state_vectors_to_rviz_node.py
+  scripts/adsb_state_vectors_plot_2d.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

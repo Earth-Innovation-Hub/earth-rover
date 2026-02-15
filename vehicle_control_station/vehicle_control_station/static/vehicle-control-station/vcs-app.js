@@ -313,7 +313,8 @@ const cameras = {
     'left-stereo': { topic: '/stereo/left/image_raw', active: false, quality: 'medium' },
     'right-stereo': { topic: '/stereo/right/image_raw', active: false, quality: 'medium' },
     'fisheye': { topic: '/camera/fisheye1/image_raw', active: false, quality: 'medium' },
-    'spectrometer-plot': { topic: '/spectrometer_plot', active: false, quality: 'medium' }
+    'spectrometer-plot': { topic: '/spectrometer_plot', active: false, quality: 'medium' },
+    'adsb-plot': { topic: '/adsb_state_vectors_plot_2d/aircraft_plot_image', active: false, quality: 'medium' }
 };
 
 const qualitySettings = {
@@ -323,9 +324,20 @@ const qualitySettings = {
     'snapshot': '?quality=60&width=640&height=480'
 };
 
+/* Square dimensions for plot streams (avoid stretch); key = quality, value = ?quality=N&width=W&height=W */
+const squareQualitySettings = {
+    'high': '?quality=80&width=800&height=800',
+    'medium': '?quality=60&width=640&height=640',
+    'low': '?quality=40&width=320&height=320',
+    'snapshot': '?quality=60&width=640&height=640'
+};
+
 function getCameraStreamUrl(cameraId) {
     const camera = cameras[cameraId];
-    const quality = qualitySettings[camera.quality] || qualitySettings['medium'];
+    const useSquare = (cameraId === 'adsb-plot' || cameraId === 'spectrometer-plot');
+    const quality = useSquare
+        ? (squareQualitySettings[camera.quality] || squareQualitySettings['medium'])
+        : (qualitySettings[camera.quality] || qualitySettings['medium']);
     
     if (camera.quality === 'snapshot') {
         return `${VCS_CONFIG.video_server_url}/snapshot${quality}&topic=${camera.topic}`;
@@ -720,33 +732,6 @@ function renderRadioSummary(data) {
     }
 }
 
-function renderAircraftRadio(data) {
-    const container = document.getElementById('radio-aircraft-container');
-    if (!container) return;
-    const aircraft = data.aircraft || [];
-    if (aircraft.length === 0) {
-        container.innerHTML = '<div class="text-center text-muted" style="padding: 30px 0;">No radio aircraft metrics yet</div>';
-        return;
-    }
-
-    let html = '<table class="aircraft-table"><thead><tr>';
-    html += '<th>ICAO</th><th>Call</th><th>Rate</th><th>Age</th><th>Q</th><th>Pos</th><th>Vel</th>';
-    html += '</tr></thead><tbody>';
-    aircraft.slice(0, 60).forEach(function(a) {
-        const q = a.radio_quality_pct != null ? a.radio_quality_pct : 0;
-        html += '<tr>';
-        html += `<td class="icao-cell">${escapeHtml(String(a.icao || '--'))}</td>`;
-        html += `<td class="callsign-cell">${escapeHtml(String(a.callsign || '--'))}</td>`;
-        html += `<td class="speed-cell">${(a.msg_rate_hz || 0).toFixed(2)} Hz</td>`;
-        html += `<td class="age-cell">${(a.age_s || 0).toFixed(1)} s</td>`;
-        html += `<td class="heading-cell">${q}%</td>`;
-        html += `<td class="alt-cell">${a.has_position ? 'Y' : '-'}</td>`;
-        html += `<td class="alt-cell">${a.has_speed && a.has_heading ? 'Y' : '-'}</td>`;
-        html += '</tr>';
-    });
-    html += '</tbody></table>';
-    container.innerHTML = html;
-}
 
 const radioSummaryListener = new ROSLIB.Topic({
     ros: ros,
@@ -763,24 +748,11 @@ radioSummaryListener.subscribe(function(message) {
     }
 });
 
-const aircraftRadioListener = new ROSLIB.Topic({
-    ros: ros,
-    name: '/adsb/rtl_adsb_decoder_node/aircraft_radio',
-    messageType: 'std_msgs/String'
-});
-
-aircraftRadioListener.subscribe(function(message) {
-    try {
-        const data = JSON.parse(message.data);
-        renderAircraftRadio(data);
-    } catch (e) {
-        console.error('Error parsing aircraft radio:', e);
-    }
-});
-
 // State for tracked aircraft
 const aircraftMarkers = {};   // ICAO -> { marker, data, lastSeen }
 const aircraftData = {};       // ICAO -> { callsign, alt, speed, heading, lat, lon }
+const aircraftRadioData = {};  // ICAO -> { msg_rate_hz, age_s, radio_quality_pct, has_position, has_speed, has_heading, ... }
+let lastAircraftListRows = [];  // Last aircraft rows from aircraft_list (flight + radio) for table
 const AIRCRAFT_STALE_MS = 60000;  // Remove after 60s (1 minute) without update
 const AIRCRAFT_PROPAGATION_MAX_S = 8.0;
 const AIRCRAFT_PREDICTION_HORIZON_S = 2.0;
@@ -822,9 +794,10 @@ function createAircraftIcon(heading, isSelected) {
     });
 }
 
-// Build popup content for an aircraft
+// Build popup content for an aircraft (flight data + radio characteristics)
 function aircraftPopupContent(icao, data) {
-    let html = `<div style="min-width: 140px;">`;
+    const radio = aircraftRadioData[icao] || {};
+    let html = `<div style="min-width: 160px;">`;
     html += `<div style="color: #4a9eff; font-weight: bold; font-size: 13px; margin-bottom: 4px;">${icao}</div>`;
     if (data.callsign) {
         html += `<div style="color: #00e676; font-size: 14px; font-weight: bold; margin-bottom: 4px;">${data.callsign}</div>`;
@@ -839,7 +812,17 @@ function aircraftPopupContent(icao, data) {
         html += `<div>HDG: <span style="color: #b0b0b0;">${data.heading.toFixed(0)}&deg;</span></div>`;
     }
     if (data.lat != null && data.lon != null) {
-        html += `<div style="color: #888; font-size: 10px; margin-top: 4px;">${data.lat.toFixed(4)}, ${data.lon.toFixed(4)}</div>`;
+        html += `<div style="color: #888; font-size: 10px;">${data.lat.toFixed(4)}, ${data.lon.toFixed(4)}</div>`;
+    }
+    // Radio characteristics section
+    if (radio.msg_rate_hz != null || radio.age_s != null || radio.radio_quality_pct != null) {
+        html += `<div style="border-top: 1px solid #444; margin-top: 6px; padding-top: 4px; font-size: 10px; color: #888;">`;
+        html += `<div style="color: #666; margin-bottom: 2px;">Radio</div>`;
+        if (radio.msg_rate_hz != null) html += `<div>Rate: <span style="color: #b0b0b0;">${Number(radio.msg_rate_hz).toFixed(2)} Hz</span></div>`;
+        if (radio.age_s != null) html += `<div>Age: <span style="color: #b0b0b0;">${Number(radio.age_s).toFixed(1)} s</span></div>`;
+        if (radio.radio_quality_pct != null) html += `<div>Q: <span style="color: #b0b0b0;">${Number(radio.radio_quality_pct)}%</span></div>`;
+        html += `<div>Pos: ${radio.has_position ? '<span style="color: #00e676;">Y</span>' : '<span style="color: #666;">-</span>'} | Vel: ${(radio.has_speed && radio.has_heading) ? '<span style="color: #00e676;">Y</span>' : '<span style="color: #666;">-</span>'}</div>`;
+        html += `</div>`;
     }
     html += `</div>`;
     return html;
@@ -925,7 +908,7 @@ aircraftPositionListener.subscribe(function(message) {
     }
 });
 
-// Subscribe to aircraft list summary (String)
+// Subscribe to aircraft list (JSON: flight + radio per aircraft)
 const aircraftListListener = new ROSLIB.Topic({
     ros: ros,
     name: '/adsb/rtl_adsb_decoder_node/aircraft_list',
@@ -936,58 +919,59 @@ let lastAircraftListUpdate = 0;
 
 aircraftListListener.subscribe(function(message) {
     const now = Date.now();
-    if (now - lastAircraftListUpdate < 2000) return;  // Throttle to 0.5 Hz
+    if (now - lastAircraftListUpdate < 1500) return;
     lastAircraftListUpdate = now;
 
-    const data = message.data || '';
+    const raw = message.data || '';
+    let data;
+    try {
+        data = raw.trim().startsWith('{') ? JSON.parse(raw) : null;
+    } catch (e) {
+        return;
+    }
+    if (!data || !Array.isArray(data.aircraft)) {
+        return;
+    }
 
-    // Parse: "Tracked Aircraft (N): ICAO1 (CALL) @ALTft SPDkts hdg HDG°, ICAO2 ..."
-    const countMatch = data.match(/Tracked Aircraft \((\d+)\)/);
-    const count = countMatch ? parseInt(countMatch[1]) : 0;
-
-    // Update count badges
+    const count = data.tracked_count != null ? data.tracked_count : data.aircraft.length;
     const countBadge = document.getElementById('aircraft-count-badge');
     const mapCount = document.getElementById('aircraft-map-count');
     if (countBadge) countBadge.textContent = count;
     if (mapCount) mapCount.textContent = count;
 
-    // Parse individual aircraft entries
-    const listPart = data.replace(/Tracked Aircraft \(\d+\):\s*/, '');
-    const entries = listPart.split(',').map(e => e.trim()).filter(e => e.length > 0);
-
-    // Parse each entry and update aircraftData
     const seenIcaos = new Set();
-    entries.forEach(function(entry) {
-        // Format: "ICAO (CALLSIGN) @ALTft SPEEDkts hdg HEADING°"
-        const icaoMatch = entry.match(/^([A-F0-9]{6})/i);
-        if (!icaoMatch) return;
-
-        const icao = icaoMatch[1].toUpperCase();
+    data.aircraft.forEach(function(a) {
+        const icao = (a.icao || '').toString().toUpperCase();
+        if (!icao) return;
         seenIcaos.add(icao);
+
         if (!aircraftData[icao]) aircraftData[icao] = {};
-        aircraftData[icao]._listAge = Date.now();
+        aircraftData[icao].callsign = a.callsign || aircraftData[icao].callsign;
+        aircraftData[icao].alt = a.altitude != null ? a.altitude : aircraftData[icao].alt;
+        aircraftData[icao].speed = a.speed != null ? a.speed : aircraftData[icao].speed;
+        aircraftData[icao].heading = a.heading != null ? a.heading : aircraftData[icao].heading;
+        if (a.latitude != null && a.longitude != null) {
+            aircraftData[icao].lat = a.latitude;
+            aircraftData[icao].lon = a.longitude;
+        }
+        aircraftData[icao]._listAge = now;
 
-        const callMatch = entry.match(/\(([^)]+)\)/);
-        if (callMatch) aircraftData[icao].callsign = callMatch[1];
+        aircraftRadioData[icao] = {
+            msg_rate_hz: a.msg_rate_hz,
+            age_s: a.age_s,
+            radio_quality_pct: a.radio_quality_pct,
+            has_position: a.has_position,
+            has_speed: a.has_speed,
+            has_heading: a.has_heading,
+            pos_rate_hz: a.pos_rate_hz,
+            vel_rate_hz: a.vel_rate_hz
+        };
 
-        const altMatch = entry.match(/@([\d.]+)ft/);
-        if (altMatch) aircraftData[icao].alt = parseFloat(altMatch[1]);
-
-        const spdMatch = entry.match(/([\d.]+)kts/);
-        if (spdMatch) aircraftData[icao].speed = parseFloat(spdMatch[1]);
-
-        const hdgMatch = entry.match(/hdg\s+([\d.]+)/);
-        if (hdgMatch) {
-            aircraftData[icao].heading = parseFloat(hdgMatch[1]);
-            // Update marker icon rotation if marker exists
-            if (aircraftMarkers[icao]) {
-                aircraftMarkers[icao].marker.setIcon(createAircraftIcon(aircraftData[icao].heading, false));
-            }
+        if (aircraftMarkers[icao] && aircraftData[icao].heading != null) {
+            aircraftMarkers[icao].marker.setIcon(createAircraftIcon(aircraftData[icao].heading, false));
         }
     });
 
-    // Remove map markers for aircraft the ROS node has already evicted
-    // (they no longer appear in the aircraft_list).
     Object.keys(aircraftMarkers).forEach(function(icao) {
         if (!seenIcaos.has(icao)) {
             if (aircraftMap) {
@@ -997,38 +981,42 @@ aircraftListListener.subscribe(function(message) {
             }
             delete aircraftMarkers[icao];
             delete aircraftData[icao];
+            delete aircraftRadioData[icao];
         }
     });
 
-    // Update aircraft list UI
-    updateAircraftListUI(entries);
+    lastAircraftListRows = data.aircraft;
+    updateAircraftListUI(data.aircraft);
 });
 
-function updateAircraftListUI(entries) {
+function updateAircraftListUI(aircraftRows) {
     const container = document.getElementById('aircraft-list-container');
     if (!container) return;
 
-    if (entries.length === 0) {
+    if (!aircraftRows || aircraftRows.length === 0) {
         container.innerHTML = '<div class="text-center text-muted" style="padding: 40px 0;">No aircraft detected</div>';
         return;
     }
 
     let html = '<table class="aircraft-table"><thead><tr>';
-    html += '<th>ICAO</th><th>Callsign</th><th>Alt (ft)</th><th>Speed</th><th>Hdg</th>';
+    html += '<th>ICAO</th><th>Call</th><th>Alt (ft)</th><th>Spd</th><th>Hdg</th>';
+    html += '<th>Rate</th><th>Age</th><th>Q</th><th>Pos</th><th>Vel</th>';
     html += '</tr></thead><tbody>';
 
-    entries.forEach(function(entry) {
-        const icaoMatch = entry.match(/^([A-F0-9]{6})/i);
-        if (!icaoMatch) return;
-        const icao = icaoMatch[1].toUpperCase();
-        const d = aircraftData[icao] || {};
-
+    aircraftRows.forEach(function(a) {
+        const icao = (a.icao || '').toString().toUpperCase();
+        if (!icao) return;
         html += '<tr>';
-        html += `<td class="icao-cell">${icao}</td>`;
-        html += `<td class="callsign-cell">${d.callsign || '--'}</td>`;
-        html += `<td class="alt-cell">${d.alt != null ? d.alt.toFixed(0) : '--'}</td>`;
-        html += `<td class="speed-cell">${d.speed != null ? d.speed.toFixed(0) + ' kts' : '--'}</td>`;
-        html += `<td class="heading-cell">${d.heading != null ? d.heading.toFixed(0) + '&deg;' : '--'}</td>`;
+        html += `<td class="icao-cell">${escapeHtml(icao)}</td>`;
+        html += `<td class="callsign-cell">${escapeHtml(String(a.callsign || '--'))}</td>`;
+        html += `<td class="alt-cell">${a.altitude != null ? Number(a.altitude).toFixed(0) : '--'}</td>`;
+        html += `<td class="speed-cell">${a.speed != null ? Number(a.speed).toFixed(0) : '--'}</td>`;
+        html += `<td class="heading-cell">${a.heading != null ? Number(a.heading).toFixed(0) + '°' : '--'}</td>`;
+        html += `<td class="speed-cell">${a.msg_rate_hz != null ? Number(a.msg_rate_hz).toFixed(2) + ' Hz' : '--'}</td>`;
+        html += `<td class="age-cell">${a.age_s != null ? Number(a.age_s).toFixed(1) + ' s' : '--'}</td>`;
+        html += `<td class="heading-cell">${a.radio_quality_pct != null ? a.radio_quality_pct + '%' : '--'}</td>`;
+        html += `<td class="alt-cell">${a.has_position ? 'Y' : '-'}</td>`;
+        html += `<td class="alt-cell">${(a.has_speed && a.has_heading) ? 'Y' : '-'}</td>`;
         html += '</tr>';
     });
 

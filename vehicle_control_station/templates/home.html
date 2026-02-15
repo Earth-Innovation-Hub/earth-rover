@@ -170,76 +170,57 @@
                 <span class="section-toggle">&#9660;</span>
             </div>
             <div id="aircraft-content" class="section-content">
-                <div class="grid grid-compact" style="grid-template-columns: 1fr 1fr;">
-                    <!-- Unified Map (rover + aircraft) -->
-                    <div class="card">
-                        <h2>Situational Awareness Map</h2>
-                        <div class="text-muted mb-1" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 0.8em;">
-                            <label style="display: inline-flex; align-items: center; gap: 6px;">
+                <!-- Row 1: map and 2D plot side by side -->
+                <div class="grid grid-compact aircraft-top-row" style="grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="card aircraft-map-card">
+                        <h2 class="card-title-sm">Situational Awareness Map</h2>
+                        <div class="text-muted mb-1" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 0.75em;">
+                            <label style="display: inline-flex; align-items: center; gap: 4px;">
                                 Estimator
-                                <select id="estimate-mode-select" style="font-size: 0.9em; padding: 2px 6px; background: #1a1f2e; color: #e0e0e0; border: 1px solid #2a2a3e; border-radius: 4px;">
+                                <select id="estimate-mode-select" style="font-size: 0.85em; padding: 2px 4px; background: #1a1f2e; color: #e0e0e0; border: 1px solid #2a2a3e; border-radius: 4px;">
                                     <option value="kf" selected>KF (smoothed)</option>
                                     <option value="raw">Raw robust</option>
                                 </select>
                             </label>
-                            <label style="display: inline-flex; align-items: center; gap: 6px;">
+                            <label style="display: inline-flex; align-items: center; gap: 4px;">
                                 <input id="aircraft-propagation-toggle" type="checkbox" checked />
                                 Propagation + vectors
                             </label>
                         </div>
-                        <div id="aircraft-map" style="height: 450px; width: 100%; border-radius: 4px; border: 1px solid var(--border-color);"></div>
-                        <div class="text-muted mt-1" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 0.85em;">
-                            <span>
-                                <span style="color: #00e676;">&#9679;</span> Rover:
-                                <span id="rover-position-display" style="color: #b0b0b0;">--</span>
-                            </span>
-                            <span>
-                                <span style="color: #ff9800;">&#9678;</span> Est:
-                                <span id="estimated-pos-display" style="color: #b0b0b0;">--</span>
-                            </span>
-                            <span>
-                                <span style="color: #00e5ff;">&#9992;</span> Aircraft: <span id="aircraft-map-count" style="color: #4a9eff; font-weight: 600;">0</span>
-                            </span>
+                        <div id="aircraft-map" class="aircraft-map-area"></div>
+                        <div class="text-muted mt-1" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 0.78em;">
+                            <span><span style="color: #00e676;">&#9679;</span> Rover: <span id="rover-position-display" style="color: #b0b0b0;">--</span></span>
+                            <span><span style="color: #ff9800;">&#9678;</span> Est: <span id="estimated-pos-display" style="color: #b0b0b0;">--</span></span>
+                            <span><span style="color: #00e5ff;">&#9992;</span> Aircraft: <span id="aircraft-map-count" style="color: #4a9eff; font-weight: 600;">0</span></span>
                         </div>
                     </div>
-
-                    <!-- Aircraft List -->
-                    <div class="card">
-                        <h2>Tracked Aircraft</h2>
-                        <div id="aircraft-list-container" style="max-height: 450px; overflow-y: auto; font-size: 0.8em;">
-                            <div class="text-center text-muted" style="padding: 40px 0;">
-                                Waiting for ADS-B data...
+                    <div class="card camera-card aircraft-plot-card">
+                        <h2 class="card-title-sm">ADS-B 2D Plot (local ENU)</h2>
+                        <div class="camera-controls">
+                            <button class="camera-btn" onclick="toggleCamera('adsb-plot')">▶ Play</button>
+                            <select id="adsb-plot-quality" onchange="updateCameraQuality('adsb-plot')" style="font-size: 0.7em; padding: 2px 4px;">
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="low">Low</option>
+                                <option value="snapshot">Snapshot</option>
+                            </select>
+                        </div>
+                        <div id="adsb-plot-container" class="camera-container aircraft-plot-container">
+                            <div class="camera-placeholder" onclick="startCamera('adsb-plot')">
+                                <div class="camera-placeholder-icon">&#9992;</div>
+                                <div>Click to Start</div>
                             </div>
                         </div>
+                        <div id="adsb-plot-status" class="camera-status paused">Paused</div>
                     </div>
                 </div>
-
-                <div class="grid grid-compact mt-2" style="grid-template-columns: 1fr 1fr;">
-                    <div class="card">
-                        <h2>ADS-B Radio Summary</h2>
-                        <div id="radio-summary-container" class="text-muted" style="font-size: 0.82em; margin-bottom: 8px;">
-                            Waiting for radio summary...
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
-                            <div>
-                                <div class="text-muted" style="font-size: 0.75em; margin-bottom: 4px;">Message Rate Histogram (Hz per aircraft)</div>
-                                <canvas id="radio-rate-hist-canvas" class="canvas-container" style="height: 120px;"></canvas>
-                            </div>
-                            <div>
-                                <div class="text-muted" style="font-size: 0.75em; margin-bottom: 4px;">Aircraft Age Histogram (s since seen)</div>
-                                <canvas id="radio-age-hist-canvas" class="canvas-container" style="height: 120px;"></canvas>
-                            </div>
-                        </div>
+                <!-- Row 2: aircraft list table full width -->
+                <div class="card aircraft-table-card mt-2">
+                    <h2 class="card-title-sm">Tracked Aircraft</h2>
+                    <div id="aircraft-list-container" class="aircraft-list-scroll aircraft-list-under">
+                        <div class="text-center text-muted" style="padding: 24px 0; font-size: 0.75em;">Waiting for ADS-B data...</div>
                     </div>
-
-                    <div class="card">
-                        <h2>Aircraft Radio Characteristics</h2>
-                        <div id="radio-aircraft-container" style="max-height: 300px; overflow-y: auto; font-size: 0.78em;">
-                            <div class="text-center text-muted" style="padding: 30px 0;">
-                                Waiting for aircraft radio metrics...
-                            </div>
-                        </div>
-                    </div>
+                    <div class="text-muted" style="font-size: 0.65em; margin-top: 4px;">Rate=msg/s, Age=s, Q=%, Pos/Vel=fix</div>
                 </div>
             </div>
         </div>
