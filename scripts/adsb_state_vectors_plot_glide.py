@@ -5,7 +5,7 @@ Glide profile plot of ADS-B aircraft: altitude vs glide angle with speed arrows.
 Subscribes to aircraft state vectors (JSON). Renders a 2D profile:
   - X-axis: Glide/path angle γ (deg), negative = descent, positive = climb
   - Y-axis: Altitude (ft)
-  - Arrows: From each dot toward center (γ=0); length ∝ speed (capped)
+  - Arrows: From each dot outward; climb→right, descent→left; length ∝ speed (capped)
   - Scatter: Aircraft positions at (γ, alt); dots and arrows share the same tail
   - Color: Green=climb, Red=descent, Blue=cruise (±50 ft/min)
   - Trike shown as horizontal line at its altitude
@@ -138,7 +138,7 @@ class StateVectorsPlotGlideNode(Node):
         ax.set_ylim(self._alt_min, self._alt_max)
         ax.set_xlabel('Glide angle γ (°); + = climb', fontsize=9)
         ax.set_ylabel('Altitude (ft)', fontsize=9)
-        ax.set_title('Glide profile: alt vs γ; arrows to center = speed', fontsize=10)
+        ax.set_title('Glide profile: alt vs γ; arrows outward = speed', fontsize=10)
         ax.grid(True, alpha=0.5)
         ax.axvline(0, color='k', linewidth=0.5)
         self._fill_descent = ax.fill_between([-self._glide_range, 0], self._alt_min, self._alt_max, alpha=0.05, color='red', label='Descent')
@@ -220,10 +220,9 @@ class StateVectorsPlotGlideNode(Node):
             colors.append(self._flight_mode_color(vrate_fpm))
             icaos.append((ac.get('icao') or '').strip())
 
-            # Arrow FROM the dot TOWARD the center (γ=0); length ∝ speed, capped
-            # Keeps dot and arrow connected; arrow points to level-flight reference
+            # Arrow FROM the dot OUTWARD: climb → right (toward right edge), descent → left (toward left edge)
             arrow_len_deg = min(speed_kts * self._speed_scale, max_arrow_deg)
-            u_val = (-arrow_len_deg if gamma > 0 else (arrow_len_deg if gamma < 0 else 0.0))
+            u_val = (arrow_len_deg if gamma > 0 else (-arrow_len_deg if gamma < 0 else 0.0))
             arrow_x_start.append(gamma)
             arrow_y_start.append(alt_ft)
             arrow_u.append(u_val)
@@ -233,7 +232,7 @@ class StateVectorsPlotGlideNode(Node):
         ax.scatter(
             gammas, alts, c=colors, s=40, alpha=0.9, edgecolors='#333', linewidths=0.5, zorder=5
         )
-        # Arrows: from dot toward center (shortened; dot and arrow connected)
+        # Arrows: from dot outward (climb→right, descent→left)
         ax.quiver(
             arrow_x_start, arrow_y_start, arrow_u, arrow_v,
             color=colors, alpha=0.85, scale=1.0, scale_units='xy', angles='xy',
