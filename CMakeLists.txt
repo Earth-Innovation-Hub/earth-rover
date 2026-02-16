@@ -62,6 +62,7 @@ install(PROGRAMS
   scripts/adsb_aircraft_state_vectors_node.py
   scripts/adsb_state_vectors_to_rviz_node.py
   scripts/adsb_state_vectors_plot_2d.py
+  scripts/adsb_state_vectors_plot_glide.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -53,7 +53,7 @@ echo ""
 cd /home/jdas
 
 # 1. Serial Data Publisher
-echo "[1/14] Starting Serial Data Publisher..."
+echo "[1/15] Starting Serial Data Publisher..."
 if [ -f ros_publish_serial.py ]; then
     nohup python3 ros_publish_serial.py > "$LOG_DIR/ros_publish_serial.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/ros_publish_serial.log)"
@@ -62,7 +62,7 @@ else
 fi
 
 # 2. MAVROS (Pixhawk Connection) — same as your history: fcu_url + gcs_url
-echo "[2/14] Starting MAVROS..."
+echo "[2/15] Starting MAVROS..."
 if [ -n "$GCS_URL" ]; then
     nohup ros2 launch mavros px4.launch fcu_url:="$FCU_URL" gcs_url:="$GCS_URL" > "$LOG_DIR/mavros_px4.log" 2>&1 &
 else
@@ -72,7 +72,7 @@ echo "  └─ PID: $! (log: $LOG_DIR/mavros_px4.log)"
 sleep 2  # Give MAVROS time to connect
 
 # 3. Grasshopper3 Stereo Cameras
-echo "[3/14] Starting Grasshopper3 Stereo Cameras..."
+echo "[3/15] Starting Grasshopper3 Stereo Cameras..."
 GRASSHOPPER_LAUNCH="${GRASSHOPPER_LAUNCH:-$ROS2_WS/launch_grasshopper.sh}"
 if [ -f "$GRASSHOPPER_LAUNCH" ]; then
     nohup "$GRASSHOPPER_LAUNCH" 3 > "$LOG_DIR/grasshopper_stereo.log" 2>&1 &
@@ -82,7 +82,7 @@ else
 fi
 
 # 4. Spectrometer Data Publisher (source: spectrometer_ocean_optics, installs as spectrometery_ros2)
-echo "[4/14] Starting Spectrometer Data Publisher..."
+echo "[4/15] Starting Spectrometer Data Publisher..."
 SPECTROMETER_PY=""
 for p in "$ROS2_WS/src/spectrometer_ocean_optics/src/Spectrometer_Data_Publisher.py" \
          "$ROS2_WS/src/spectrometery_ros2/src/Spectrometer_Data_Publisher.py"; do
@@ -99,7 +99,7 @@ else
 fi
 
 # 5. Spectrometer Intensity Plot (image topic for VCS; no GUI)
-echo "[5/14] Starting Spectrometer Intensity Plot..."
+echo "[5/15] Starting Spectrometer Intensity Plot..."
 if ros2 pkg list 2>/dev/null | grep -q spectrometery_ros2; then
     nohup ros2 run spectrometery_ros2 Intensity_Plot.py > "$LOG_DIR/spectrometer_intensity_plot.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/spectrometer_intensity_plot.log)"
@@ -108,22 +108,22 @@ else
 fi
 
 # 6. RealSense Camera
-echo "[6/14] Starting RealSense Camera..."
+echo "[6/15] Starting RealSense Camera..."
 nohup ros2 launch realsense2_camera rs_launch.py > "$LOG_DIR/realsense.log" 2>&1 &
 echo "  └─ PID: $! (log: $LOG_DIR/realsense.log)"
 
 # 7. ROSBridge WebSocket Server
-echo "[7/14] Starting ROSBridge WebSocket Server..."
+echo "[7/15] Starting ROSBridge WebSocket Server..."
 nohup ros2 launch rosbridge_server rosbridge_websocket_launch.xml > "$LOG_DIR/rosbridge.log" 2>&1 &
 echo "  └─ PID: $! (log: $LOG_DIR/rosbridge.log)"
 
 # 8. Web Video Server
-echo "[8/14] Starting Web Video Server (port 8080)..."
+echo "[8/15] Starting Web Video Server (port 8080)..."
 nohup ros2 run web_video_server web_video_server --ros-args -p port:=8080 > "$LOG_DIR/web_video_server.log" 2>&1 &
 echo "  └─ PID: $! (log: $LOG_DIR/web_video_server.log)"
 
 # 9. RTL ADS-B (dump1090; HTTP on 8082 to avoid 8080)
-echo "[9/14] Starting RTL ADS-B decoder..."
+echo "[9/15] Starting RTL ADS-B decoder..."
 if ros2 pkg list 2>/dev/null | grep -q deepgis_vehicles; then
     nohup ros2 launch deepgis_vehicles rtl_adsb.launch.py > "$LOG_DIR/rtl_adsb.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/rtl_adsb.log)"
@@ -133,7 +133,7 @@ else
 fi
 
 # 10. ADS-B aircraft state vectors (trike frame; needs MAVROS + RTL ADS-B)
-echo "[10/14] Starting ADS-B aircraft state vectors..."
+echo "[10/15] Starting ADS-B aircraft state vectors..."
 if ros2 pkg list 2>/dev/null | grep -q deepgis_vehicles; then
     nohup ros2 launch deepgis_vehicles adsb_aircraft_state_vectors.launch.py > "$LOG_DIR/adsb_state_vectors.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/adsb_state_vectors.log)"
@@ -143,7 +143,7 @@ else
 fi
 
 # 11. ADS-B 2D plot image (publishes ~/aircraft_plot_image for VCS)
-echo "[11/14] Starting ADS-B 2D plot image..."
+echo "[11/15] Starting ADS-B 2D plot image..."
 if ros2 pkg list 2>/dev/null | grep -q deepgis_vehicles; then
     nohup ros2 launch deepgis_vehicles adsb_state_vectors_plot_2d.launch.py > "$LOG_DIR/adsb_plot_2d.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/adsb_plot_2d.log)"
@@ -151,18 +151,27 @@ else
     echo "  └─ SKIP: deepgis_vehicles not found"
 fi
 
-# 12. Velodyne LiDAR
-echo "[12/14] Starting Velodyne VLP-16 LiDAR..."
+# 12. ADS-B glide profile plot (altitude vs path angle)
+echo "[12/15] Starting ADS-B glide profile plot..."
+if ros2 pkg list 2>/dev/null | grep -q deepgis_vehicles; then
+    nohup ros2 launch deepgis_vehicles adsb_state_vectors_plot_glide.launch.py > "$LOG_DIR/adsb_plot_glide.log" 2>&1 &
+    echo "  └─ PID: $! (log: $LOG_DIR/adsb_plot_glide.log)"
+else
+    echo "  └─ SKIP: deepgis_vehicles not found"
+fi
+
+# 13. Velodyne LiDAR
+echo "[13/15] Starting Velodyne VLP-16 LiDAR..."
 nohup ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py > "$LOG_DIR/velodyne.log" 2>&1 &
 echo "  └─ PID: $! (log: $LOG_DIR/velodyne.log)"
 
-# 13. DeepGIS GPS Publisher
-echo "[13/14] Starting DeepGIS GPS Publisher..."
+# 14. DeepGIS GPS Publisher
+echo "[14/15] Starting DeepGIS GPS Publisher..."
 nohup ros2 run deepgis_vehicles deepgis_gps_publisher.py > "$LOG_DIR/deepgis_gps.log" 2>&1 &
 echo "  └─ PID: $! (log: $LOG_DIR/deepgis_gps.log)"
 
-# 14. Vehicle Control Station (Django Web Server)
-echo "[14/14] Starting Vehicle Control Station Web Server..."
+# 15. Vehicle Control Station (Django Web Server)
+echo "[15/15] Starting Vehicle Control Station Web Server..."
 cd "$VCS_DIR"
 nohup python3 manage.py runserver 0.0.0.0:8000 > "$LOG_DIR/django_vcs.log" 2>&1 &
 echo "  └─ PID: $! (log: $LOG_DIR/django_vcs.log)"

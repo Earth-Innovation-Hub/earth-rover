@@ -328,7 +328,8 @@ const cameras = {
     'right-stereo': { topic: '/stereo/right/image_raw', active: false, quality: 'medium' },
     'fisheye': { topic: '/camera/fisheye1/image_raw', active: false, quality: 'medium' },
     'spectrometer-plot': { topic: '/spectrometer_plot', active: false, quality: 'medium' },
-    'adsb-plot': { topic: '/adsb_state_vectors_plot_2d/aircraft_plot_image', active: false, quality: 'medium' }
+    'adsb-plot': { topic: '/adsb_state_vectors_plot_2d/aircraft_plot_image', active: false, quality: 'medium' },
+    'adsb-glide-plot': { topic: '/adsb_state_vectors_plot_glide/aircraft_plot_glide_image', active: false, quality: 'medium' }
 };
 
 const qualitySettings = {
@@ -348,7 +349,7 @@ const squareQualitySettings = {
 
 function getCameraStreamUrl(cameraId) {
     const camera = cameras[cameraId];
-    const useSquare = (cameraId === 'adsb-plot' || cameraId === 'spectrometer-plot');
+    const useSquare = (cameraId === 'adsb-plot' || cameraId === 'adsb-glide-plot' || cameraId === 'spectrometer-plot');
     const quality = useSquare
         ? (squareQualitySettings[camera.quality] || squareQualitySettings['medium'])
         : (qualitySettings[camera.quality] || qualitySettings['medium']);

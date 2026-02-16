@@ -145,8 +145,8 @@
                 <span class="section-toggle">&#9660;</span>
             </div>
             <div id="aircraft-content" class="section-content">
-                <!-- Row: map | 2D plot | Tracked Aircraft (right) -->
-                <div class="grid grid-compact aircraft-top-row" style="grid-template-columns: 1fr 1fr 0.85fr; gap: 10px;">
+                <!-- Row: map | 2D plot | glide profile -->
+                <div class="grid grid-compact aircraft-top-row" style="grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
                     <div class="card aircraft-map-card">
                         <h2 class="card-title-sm">Situational Awareness Map</h2>
                         <div class="text-muted mb-1" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 0.75em;">
@@ -188,12 +188,24 @@
                         </div>
                         <div id="adsb-plot-status" class="camera-status paused">Paused</div>
                     </div>
-                    <div class="card aircraft-table-card">
-                        <h2 class="card-title-sm">Tracked Aircraft</h2>
-                        <div id="aircraft-list-container" class="aircraft-list-scroll aircraft-list-under">
-                            <div class="text-center text-muted" style="padding: 24px 0; font-size: 0.75em;">Waiting for ADS-B data...</div>
+                    <div class="card camera-card aircraft-plot-card">
+                        <h2 class="card-title-sm">Glide Profile (alt vs γ)</h2>
+                        <div class="camera-controls">
+                            <button class="camera-btn" onclick="toggleCamera('adsb-glide-plot')">▶ Play</button>
+                            <select id="adsb-glide-plot-quality" onchange="updateCameraQuality('adsb-glide-plot')" style="font-size: 0.7em; padding: 2px 4px;">
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="low">Low</option>
+                                <option value="snapshot">Snapshot</option>
+                            </select>
                         </div>
-                        <div class="text-muted" style="font-size: 0.65em; margin-top: 4px;">Rate=msg/s, Age=s, Q=%, Pos/Vel=fix</div>
+                        <div id="adsb-glide-plot-container" class="camera-container aircraft-plot-container">
+                            <div class="camera-placeholder" onclick="startCamera('adsb-glide-plot')">
+                                <div class="camera-placeholder-icon">&#9992;</div>
+                                <div>Click to Start</div>
+                            </div>
+                        </div>
+                        <div id="adsb-glide-plot-status" class="camera-status paused">Paused</div>
                     </div>
                 </div>
             </div>
@@ -293,6 +305,24 @@
                             <div id="recording-status" class="recording-status idle">Idle</div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ============================================
+             TRACKED AIRCRAFT (above ROS panel)
+             ============================================ -->
+        <div class="section">
+            <div class="section-title" onclick="toggleSection('aircraft-table')">
+                <span>&#9992; Tracked Aircraft</span>
+                <span class="section-toggle">&#9660;</span>
+            </div>
+            <div id="aircraft-table-content" class="section-content">
+                <div class="card aircraft-table-card" style="width: 100%;">
+                    <div id="aircraft-list-container" class="aircraft-list-scroll aircraft-list-fullwidth">
+                        <div class="text-center text-muted" style="padding: 24px 0; font-size: 0.75em;">Waiting for ADS-B data...</div>
+                    </div>
+                    <div class="text-muted" style="font-size: 0.65em; margin-top: 4px;">Rate=msg/s, Age=s, Q=%, Pos/Vel=fix</div>
                 </div>
             </div>
         </div>

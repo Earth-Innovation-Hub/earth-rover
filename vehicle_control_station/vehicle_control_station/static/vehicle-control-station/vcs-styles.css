@@ -779,7 +779,7 @@ body {
     background: #0a0e1a;
 }
 
-/* Aircraft section: row 1 = map | 2D plot, row 2 = table full width */
+/* Aircraft section: map | 2D plot | glide profile (table moved to bottom above ROS) */
 .aircraft-top-row {
     display: grid;
     align-items: start;
@@ -816,6 +816,7 @@ body {
     font-size: 0.72em;
 }
 .aircraft-list-under { max-height: 280px; }
+.aircraft-list-fullwidth { max-height: 360px; }
 .aircraft-list-scroll .aircraft-table { font-size: 0.72em; }
 .aircraft-list-scroll .aircraft-table th,
 .aircraft-list-scroll .aircraft-table td { padding: 4px 6px; }
