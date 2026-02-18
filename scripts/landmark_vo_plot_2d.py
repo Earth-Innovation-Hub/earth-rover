@@ -48,6 +48,15 @@ from std_msgs.msg import Header
 EARTH_R_M = 6371000.0
 M_PER_KM = 1000.0
 
+# Colorblind-friendly palette: blue=actual, orange=KF/predicted
+COLOR_ACTUAL = '#2196F3'       # Material blue
+COLOR_ACTUAL_EDGE = '#1565C0'  # Darker blue
+COLOR_KF = '#FF9800'           # Material orange
+COLOR_KF_EDGE = '#FFB74D'      # Lighter orange
+COLOR_INNOVATION = '#00BCD4'    # Cyan
+COLOR_LANDMARKS = '#9C27B0'     # Purple (distinct from actual blue)
+COLOR_AIRCRAFT = '#26A69A'     # Teal (distinct from KF orange)
+
 
 def lla_to_enu_m(lat_deg: float, lon_deg: float, alt_m: float,
                  lat0_deg: float, lon0_deg: float, alt0_m: float) -> tuple:
@@ -471,10 +480,17 @@ class LandmarkVOPlot2DNode(Node):
                 if uv:
                     observations.append({'id': lid, 'u': uv[0], 'v': uv[1]})
 
-        # Camera center in world (body frame has cam at offset)
-        cam_x = px + self._cam_offset_x
-        cam_y = py + self._cam_offset_y
+        # Camera center in world (body frame: X forward, Y left; rotate offset by yaw)
+        c, s = math.cos(yaw), math.sin(yaw)
+        # Predicted camera: KF pose + offset (when use_est) or odom + offset (fallback)
+        cam_x = px + c * self._cam_offset_x - s * self._cam_offset_y
+        cam_y = py + s * self._cam_offset_x + c * self._cam_offset_y
         cam_z = self._cam_height
+        # Actual camera: odom pose + offset (for World 2D predicted vs actual)
+        odom_px = px - kf_dx if use_est else px
+        odom_py = py - kf_dy if use_est else py
+        actual_cam_x = odom_px + c * self._cam_offset_x - s * self._cam_offset_y
+        actual_cam_y = odom_py + s * self._cam_offset_x + c * self._cam_offset_y
 
         obs_by_id = {o['id']: o for o in observations}
         pred_uvs = []
@@ -585,39 +601,39 @@ class LandmarkVOPlot2DNode(Node):
         hfov_deg = math.degrees(self._camera.hfov_rad())
         vfov_deg = math.degrees(self._camera.vfov_rad())
         self._ax_img.text(0.02, 0.98, 'HFoV %.1f°  VFoV %.1f°' % (hfov_deg, vfov_deg),
-                          transform=self._ax_img.transAxes, fontsize=7, color='cyan',
+                          transform=self._ax_img.transAxes, fontsize=7, color=COLOR_INNOVATION,
                           va='top', ha='left', bbox=dict(boxstyle='round', facecolor='black', alpha=0.5))
 
         if pred_uvs:
             us, vs = zip(*pred_uvs)
-            self._ax_img.scatter(us, vs, c='green', s=40, marker='o', edgecolors='lime', linewidths=1, label='Predicted', zorder=5)
+            self._ax_img.scatter(us, vs, c=COLOR_KF, s=40, marker='o', edgecolors=COLOR_KF_EDGE, linewidths=1, label='Predicted', zorder=5)
         if actual_uvs:
             us, vs = zip(*actual_uvs)
-            self._ax_img.scatter(us, vs, c='red', s=50, marker='x', linewidths=2, label='Actual', zorder=6)
+            self._ax_img.scatter(us, vs, c=COLOR_ACTUAL, s=50, marker='x', linewidths=2, label='Actual', zorder=6)
         for (pu, pv), (du, dv) in residual_arrows:
-            self._ax_img.arrow(pu, pv, du, dv, head_width=4, head_length=4, fc='cyan', ec='cyan', linewidth=1.5, zorder=4)
+            self._ax_img.arrow(pu, pv, du, dv, head_width=4, head_length=4, fc=COLOR_INNOVATION, ec=COLOR_INNOVATION, linewidth=1.5, zorder=4)
         for (mu, mv, lbl) in lm_labels:
             self._ax_img.text(mu, mv, lbl, fontsize=7, color='white', ha='center', va='center', zorder=7)
-        # Aircraft: predicted (green) vs actual (red) with innovation (cyan); info only at actual
+        # Aircraft: predicted (orange) vs actual (blue) with innovation (cyan); info only at actual
         for uv_pred, dudv, icao, dist_km in ac_residual_arrows:
             du, dv = dudv[0], dudv[1]
             pu, pv = uv_pred[0], uv_pred[1]
             au, av = pu + du, pv + dv
-            self._ax_img.plot(pu, pv, 'go', markersize=6, markeredgecolor='lime', markeredgewidth=1, zorder=6)
-            self._ax_img.plot(au, av, 'rx', markersize=8, markeredgewidth=2, zorder=6)
+            self._ax_img.plot(pu, pv, 'o', color=COLOR_KF, markersize=6, markeredgecolor=COLOR_KF_EDGE, markeredgewidth=1, zorder=6)
+            self._ax_img.plot(au, av, 'x', color=COLOR_ACTUAL, markersize=8, markeredgewidth=2, zorder=6)
             if abs(du) > 1 or abs(dv) > 1:
-                self._ax_img.arrow(pu, pv, du, dv, head_width=6, head_length=5, fc='cyan', ec='cyan', alpha=0.9, zorder=5)
-            self._ax_img.text(au, av - 22, icao, fontsize=7, color='red', ha='center', va='top', zorder=7)
+                self._ax_img.arrow(pu, pv, du, dv, head_width=6, head_length=5, fc=COLOR_INNOVATION, ec=COLOR_INNOVATION, alpha=0.9, zorder=5)
+            self._ax_img.text(au, av - 22, icao, fontsize=7, color=COLOR_ACTUAL, ha='center', va='top', zorder=7)
             self._ax_img.text(au, av + 18, '%.2fkm' % dist_km, fontsize=6, color='#aaa', ha='center', va='bottom', zorder=7)
         for uv_pred, icao, dist_km in ac_pred_only:
             pu, pv = uv_pred[0], uv_pred[1]
-            self._ax_img.plot(pu, pv, 'go', markersize=5, alpha=0.7, zorder=5)
+            self._ax_img.plot(pu, pv, 'o', color=COLOR_KF, markersize=5, alpha=0.7, zorder=5)
 
-        # Image plane legend
+        # Image plane legend (blue=actual, orange=predicted, cyan=innovation)
         img_legend = [
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='g', markeredgecolor='lime', markersize=8, label='Predicted'),
-            Line2D([0], [0], marker='x', color='r', markersize=10, markeredgewidth=2, label='Actual'),
-            Line2D([0], [0], color='cyan', linewidth=2, label='Innovation'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor=COLOR_KF, markeredgecolor=COLOR_KF_EDGE, markersize=8, label='Predicted'),
+            Line2D([0], [0], marker='x', color=COLOR_ACTUAL, markersize=10, markeredgewidth=2, label='Actual'),
+            Line2D([0], [0], color=COLOR_INNOVATION, linewidth=2, label='Innovation'),
         ]
         self._ax_img.legend(handles=img_legend, loc='upper right', fontsize=7)
 
@@ -626,76 +642,116 @@ class LandmarkVOPlot2DNode(Node):
         self._frame_count += 1
         self._ax_img.text(0.98, 0.98, '#%d' % self._frame_count, transform=self._ax_img.transAxes, fontsize=8, color='white', ha='right', va='top')
 
-        # World 2D view - centered on vehicle (px, py)
+        # World 2D view - centered on actual vehicle (odom)
         self._ax_world.clear()
         extent_m = self._world_extent_km * M_PER_KM * 0.5
-        self._ax_world.set_xlim(px - extent_m, px + extent_m)
-        self._ax_world.set_ylim(py - extent_m, py + extent_m)
+        center_x, center_y = odom_px, odom_py
+        self._ax_world.set_xlim(center_x - extent_m, center_x + extent_m)
+        self._ax_world.set_ylim(center_y - extent_m, center_y + extent_m)
         self._ax_world.set_aspect('equal')
         self._ax_world.set_xlabel('East (m)', fontsize=8)
         self._ax_world.set_ylabel('North (m)', fontsize=8)
         self._ax_world.set_title('World 2D (%.1f km extent)' % self._world_extent_km, fontsize=9)
         self._ax_world.grid(True, alpha=0.4)
-        self._ax_world.axhline(py, color='k', linewidth=0.5, alpha=0.3)
-        self._ax_world.axvline(px, color='k', linewidth=0.5, alpha=0.3)
+        self._ax_world.axhline(center_y, color='k', linewidth=0.5, alpha=0.3)
+        self._ax_world.axvline(center_x, color='k', linewidth=0.5, alpha=0.3)
         self._ax_world.set_facecolor('#1a1a1a')
 
-        # Vehicle marker at (px, py)
-        self._ax_world.plot(px, py, 'o', color='red', markersize=12, markeredgecolor='darkred', markeredgewidth=2, label='Vehicle', zorder=10)
+        # Vehicle: predicted (KF) vs actual (odom) when use_est
+        self._ax_world.plot(odom_px, odom_py, 'o', color=COLOR_ACTUAL, markersize=12, markeredgecolor=COLOR_ACTUAL_EDGE, markeredgewidth=2, label='Vehicle (actual)', zorder=10)
+        if use_est and (kf_dx != 0 or kf_dy != 0):
+            self._ax_world.plot(px, py, 'o', color=COLOR_KF, markersize=10, markeredgecolor=COLOR_KF_EDGE, markeredgewidth=1.5, label='Vehicle (KF)', zorder=10)
 
-        # HFoV cone: direction in (East, North) = (x, y). ENU: yaw 0 = East -> (cos, sin)
+        # Camera: predicted (KF) vs actual (odom)
+        self._ax_world.plot(actual_cam_x, actual_cam_y, 'x', color=COLOR_ACTUAL, markersize=10, markeredgewidth=2.5, label='Camera (actual)', zorder=10)
+        if use_est and (kf_dx != 0 or kf_dy != 0):
+            self._ax_world.plot(cam_x, cam_y, 'D', color=COLOR_KF, markersize=8, markeredgecolor=COLOR_KF_EDGE, markeredgewidth=1.5, label='Camera (KF)', zorder=10)
+            # Innovation: predicted → actual camera
+            self._ax_world.arrow(cam_x, cam_y, actual_cam_x - cam_x, actual_cam_y - cam_y,
+                                head_width=15, head_length=12, fc=COLOR_INNOVATION, ec=COLOR_INNOVATION, alpha=0.8, zorder=9)
+        offset_mag = math.hypot(self._cam_offset_x, self._cam_offset_y)
+        if offset_mag > 0.1:
+            self._ax_world.plot([odom_px, actual_cam_x], [odom_py, actual_cam_y], color=COLOR_ACTUAL, linewidth=1, alpha=0.5, zorder=9)
+            if use_est and (kf_dx != 0 or kf_dy != 0):
+                self._ax_world.plot([px, cam_x], [py, cam_y], color=COLOR_KF, linewidth=1, alpha=0.5, zorder=9)
+
+        # HFoV cone from actual camera (always)
         hfov = self._camera.hfov_rad()
         half = hfov / 2.0
         effective_yaw = yaw + self._heading_offset_rad
         cone_dist = min(extent_m * 0.3, 2000.0)
         left_ang = effective_yaw - half
         right_ang = effective_yaw + half
-        if self._yaw_zero_east:
-            # ENU/ROS: yaw 0 = East, direction = (cos, sin) in (East, North)
-            lx = px + cone_dist * math.cos(left_ang)
-            ly = py + cone_dist * math.sin(left_ang)
-            rx = px + cone_dist * math.cos(right_ang)
-            ry = py + cone_dist * math.sin(right_ang)
-            mid_x = px + cone_dist * 0.5 * math.cos(effective_yaw)
-            mid_y = py + cone_dist * 0.5 * math.sin(effective_yaw)
-        else:
-            # NED/aviation: yaw 0 = North, direction = (sin, cos)
-            lx = px + cone_dist * math.sin(left_ang)
-            ly = py + cone_dist * math.cos(left_ang)
-            rx = px + cone_dist * math.sin(right_ang)
-            ry = py + cone_dist * math.cos(right_ang)
-            mid_x = px + cone_dist * 0.5 * math.sin(effective_yaw)
-            mid_y = py + cone_dist * 0.5 * math.cos(effective_yaw)
-        self._ax_world.fill([px, lx, rx, px], [py, ly, ry, py], alpha=0.2, color='cyan')
-        self._ax_world.plot([px, lx], [py, ly], 'c-', alpha=0.6, linewidth=1)
-        self._ax_world.plot([px, rx], [py, ry], 'c-', alpha=0.6, linewidth=1)
         hfov_deg = math.degrees(hfov)
-        self._ax_world.text(mid_x, mid_y, 'HFoV %.1f°' % hfov_deg, fontsize=7, color='cyan', ha='center')
+        if self._yaw_zero_east:
+            lx_a = actual_cam_x + cone_dist * math.cos(left_ang)
+            ly_a = actual_cam_y + cone_dist * math.sin(left_ang)
+            rx_a = actual_cam_x + cone_dist * math.cos(right_ang)
+            ry_a = actual_cam_y + cone_dist * math.sin(right_ang)
+            mid_x_a = actual_cam_x + cone_dist * 0.5 * math.cos(effective_yaw)
+            mid_y_a = actual_cam_y + cone_dist * 0.5 * math.sin(effective_yaw)
+        else:
+            lx_a = actual_cam_x + cone_dist * math.sin(left_ang)
+            ly_a = actual_cam_y + cone_dist * math.cos(left_ang)
+            rx_a = actual_cam_x + cone_dist * math.sin(right_ang)
+            ry_a = actual_cam_y + cone_dist * math.cos(right_ang)
+            mid_x_a = actual_cam_x + cone_dist * 0.5 * math.sin(effective_yaw)
+            mid_y_a = actual_cam_y + cone_dist * 0.5 * math.cos(effective_yaw)
+        self._ax_world.fill([actual_cam_x, lx_a, rx_a, actual_cam_x], [actual_cam_y, ly_a, ry_a, actual_cam_y], alpha=0.2, color=COLOR_ACTUAL)
+        self._ax_world.plot([actual_cam_x, lx_a], [actual_cam_y, ly_a], '-', color=COLOR_ACTUAL, alpha=0.6, linewidth=1)
+        self._ax_world.plot([actual_cam_x, rx_a], [actual_cam_y, ry_a], '-', color=COLOR_ACTUAL, alpha=0.6, linewidth=1)
+        self._ax_world.text(mid_x_a, mid_y_a, 'HFoV %.1f°' % hfov_deg, fontsize=7, color=COLOR_ACTUAL, ha='center')
+
+        # HFoV cone from predicted (KF) camera (when use_est)
+        if use_est and (kf_dx != 0 or kf_dy != 0):
+            if self._yaw_zero_east:
+                lx = cam_x + cone_dist * math.cos(left_ang)
+                ly = cam_y + cone_dist * math.sin(left_ang)
+                rx = cam_x + cone_dist * math.cos(right_ang)
+                ry = cam_y + cone_dist * math.sin(right_ang)
+                mid_x = cam_x + cone_dist * 0.5 * math.cos(effective_yaw)
+                mid_y = cam_y + cone_dist * 0.5 * math.sin(effective_yaw)
+            else:
+                lx = cam_x + cone_dist * math.sin(left_ang)
+                ly = cam_y + cone_dist * math.cos(left_ang)
+                rx = cam_x + cone_dist * math.sin(right_ang)
+                ry = cam_y + cone_dist * math.cos(right_ang)
+                mid_x = cam_x + cone_dist * 0.5 * math.sin(effective_yaw)
+                mid_y = cam_y + cone_dist * 0.5 * math.cos(effective_yaw)
+            self._ax_world.fill([cam_x, lx, rx, cam_x], [cam_y, ly, ry, cam_y], alpha=0.15, color=COLOR_KF)
+            self._ax_world.plot([cam_x, lx], [cam_y, ly], '-', color=COLOR_KF, alpha=0.5, linewidth=1)
+            self._ax_world.plot([cam_x, rx], [cam_y, ry], '-', color=COLOR_KF, alpha=0.5, linewidth=1)
+            self._ax_world.text(mid_x, mid_y, 'HFoV %.1f°' % hfov_deg, fontsize=7, color=COLOR_KF_EDGE, ha='center')
 
         # Landmarks in world (odom frame) with ID labels
         if pred_pts:
             lxs = [p[0] for p in pred_pts]
             lys = [p[1] for p in pred_pts]
             lids = [p[2] if len(p) > 2 else None for p in pred_pts]
-            self._ax_world.scatter(lxs, lys, c='blue', s=25, marker='.', label='Landmarks', zorder=4)
+            self._ax_world.scatter(lxs, lys, c=COLOR_LANDMARKS, s=25, marker='.', label='Landmarks', zorder=4)
             for (lx, ly, lid) in zip(lxs, lys, lids):
                 if lid is not None:
-                    self._ax_world.text(lx, ly + 15, str(lid), fontsize=7, color='cyan', ha='center', va='bottom', zorder=6)
+                    self._ax_world.text(lx, ly + 15, str(lid), fontsize=7, color=COLOR_LANDMARKS, ha='center', va='bottom', zorder=6)
 
         # Aircraft in world (odom frame) with ICAO and range
         if ac_world_pts:
             axs, ays = zip(*ac_world_pts)
-            self._ax_world.scatter(axs, ays, c='orange', s=40, marker='^', edgecolors='darkorange', label='Aircraft', zorder=5)
+            self._ax_world.scatter(axs, ays, c=COLOR_AIRCRAFT, s=40, marker='^', edgecolors='#00897B', label='Aircraft', zorder=5)
         for (wx, wy, icao, dist_km) in ac_info:
-            self._ax_world.text(wx, wy - 25, icao, fontsize=8, color='orange', ha='center', va='top', zorder=6)
+            self._ax_world.text(wx, wy - 25, icao, fontsize=8, color=COLOR_AIRCRAFT, ha='center', va='top', zorder=6)
             self._ax_world.text(wx, wy + 5, '%.2fkm' % dist_km, fontsize=7, color='#888', ha='center', va='bottom', zorder=6)
 
-        # World 2D legend
+        # World 2D legend (blue=actual, orange=KF, cyan=innovation)
         world_legend = [
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markeredgecolor='darkred', markersize=10, label='Vehicle'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', markersize=4, linestyle='None', label='Landmarks'),
-            Line2D([0], [0], marker='^', color='w', markerfacecolor='orange', markeredgecolor='darkorange', markersize=8, label='Aircraft'),
-            Line2D([0], [0], color='cyan', linewidth=3, label='Camera HFoV'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor=COLOR_ACTUAL, markeredgecolor=COLOR_ACTUAL_EDGE, markersize=10, label='Vehicle (actual)'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor=COLOR_KF, markeredgecolor=COLOR_KF_EDGE, markersize=8, label='Vehicle (KF)'),
+            Line2D([0], [0], marker='x', color=COLOR_ACTUAL, markersize=10, markeredgewidth=2, label='Camera (actual)'),
+            Line2D([0], [0], marker='D', color='w', markerfacecolor=COLOR_KF, markeredgecolor=COLOR_KF_EDGE, markersize=8, label='Camera (KF)'),
+            Line2D([0], [0], color=COLOR_ACTUAL, linewidth=3, label='HFoV (actual)'),
+            Line2D([0], [0], color=COLOR_KF, linewidth=3, label='HFoV (KF)'),
+            Line2D([0], [0], color=COLOR_INNOVATION, linewidth=2, label='Innovation'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor=COLOR_LANDMARKS, markersize=6, linestyle='None', label='Landmarks'),
+            Line2D([0], [0], marker='^', color='w', markerfacecolor=COLOR_AIRCRAFT, markeredgecolor='#00897B', markersize=8, label='Aircraft'),
         ]
         self._ax_world.legend(handles=world_legend, loc='upper right', fontsize=7)
 
