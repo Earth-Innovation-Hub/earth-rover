@@ -38,6 +38,7 @@ def _import_matplotlib():
 
 import rclpy
 from rclpy.node import Node
+from rcl_interfaces.msg import ParameterDescriptor, ParameterType, FloatingPointRange, SetParametersResult
 from matplotlib.lines import Line2D
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import String
@@ -114,11 +115,13 @@ class PinholeCameraModel:
 
 def world_to_camera(x_w: float, y_w: float, z_w: float,
                     cam_x: float, cam_y: float, cam_z: float,
-                    yaw_rad: float, heading_offset_rad: float = 0.0):
+                    yaw_rad: float, heading_offset_rad: float = 0.0,
+                    pitch_offset_rad: float = 0.0):
     """
     Transform world (ENU) point to camera frame.
     Body: X forward, Y left, Z up. ROS optical: X right, Y down, Z forward.
     body X → cam Z, body Y → cam −X, body Z → cam −Y.
+    heading_offset adds to yaw; pitch_offset tilts view up (positive) / down (negative).
     """
     effective_yaw = yaw_rad + heading_offset_rad
     c = math.cos(-effective_yaw)
@@ -126,23 +129,29 @@ def world_to_camera(x_w: float, y_w: float, z_w: float,
     dx = x_w - cam_x
     dy = y_w - cam_y
     dz = z_w - cam_z
-    # World to body
+    # World to body (yaw only)
     lx_b = c * dx - s * dy
     ly_b = s * dx + c * dy
     lz_b = dz
+    # Pitch: rotate about body Y. Positive pitch = nose up.
+    cp = math.cos(-pitch_offset_rad)
+    sp = math.sin(-pitch_offset_rad)
+    lx_bp = cp * lx_b + sp * lz_b
+    lz_bp = -sp * lx_b + cp * lz_b
     # Body to camera optical: x_cam = -ly_b, y_cam = -lz_b, z_cam = lx_b
     x_cam = -ly_b
-    y_cam = -lz_b
-    z_cam = lx_b
+    y_cam = -lz_bp
+    z_cam = lx_bp
     return (x_cam, y_cam, z_cam)
 
 
 def world_to_camera_3d(x_w: float, y_w: float, z_w: float,
                        cam_x: float, cam_y: float, cam_z: float,
-                       yaw_rad: float, heading_offset_rad: float = 0.0):
+                       yaw_rad: float, heading_offset_rad: float = 0.0,
+                       pitch_offset_rad: float = 0.0):
     """Same as world_to_camera; alias for 3D points."""
     return world_to_camera(x_w, y_w, z_w, cam_x, cam_y, cam_z,
-                           yaw_rad, heading_offset_rad)
+                           yaw_rad, heading_offset_rad, pitch_offset_rad)
 
 
 class LandmarkVOPlot2DNode(Node):
@@ -180,6 +189,20 @@ class LandmarkVOPlot2DNode(Node):
         self.declare_parameter('world_view_extent_km', 10.0)
         self.declare_parameter('mavros_namespace', '/mavros')
 
+        # Dynamic trim params for rqt_reconfigure (real-time yaw/pitch offset)
+        yaw_trim_desc = ParameterDescriptor(
+            description='Yaw trim (deg). Add to trike yaw to emulate other views.',
+            type=ParameterType.PARAMETER_DOUBLE,
+            floating_point_range=[FloatingPointRange(from_value=-180.0, to_value=180.0, step=0.5)],
+        )
+        pitch_trim_desc = ParameterDescriptor(
+            description='Pitch trim (deg). Tilt view up (+) / down (-) to emulate other views.',
+            type=ParameterType.PARAMETER_DOUBLE,
+            floating_point_range=[FloatingPointRange(from_value=-90.0, to_value=90.0, step=0.5)],
+        )
+        self.declare_parameter('yaw_trim_deg', 0.0, yaw_trim_desc)
+        self.declare_parameter('pitch_trim_deg', 0.0, pitch_trim_desc)
+
         self._odom_topic = self.get_parameter('odom_topic').value
         self._est_pos_topic = self.get_parameter('estimated_position_topic').value
         self._landmarks_topic = self.get_parameter('landmarks_topic').value
@@ -207,6 +230,8 @@ class LandmarkVOPlot2DNode(Node):
         self._cam_height = float(self.get_parameter('cam_height').value)
         self._heading_offset_deg = float(self.get_parameter('camera_heading_offset_deg').value)
         self._heading_offset_rad = math.radians(self._heading_offset_deg)
+        self._yaw_trim_deg = float(self.get_parameter('yaw_trim_deg').value)
+        self._pitch_trim_deg = float(self.get_parameter('pitch_trim_deg').value)
         yaw_zero = str(self.get_parameter('yaw_zero_direction').value or 'east').lower()
         self._yaw_zero_east = (yaw_zero == 'east')
 
@@ -240,6 +265,8 @@ class LandmarkVOPlot2DNode(Node):
         self.create_subscription(String, self._landmarks_topic, self._landmarks_cb, 10)
         self.create_subscription(String, self._obs_topic, self._observations_cb, 10)
         self.create_subscription(CameraInfo, self._camera_info_topic, self._camera_info_cb, 10)
+
+        self.add_on_set_parameters_callback(self._parameters_cb)
         if self._enable_aircraft and self._adsb_topic:
             self.create_subscription(String, self._adsb_topic, self._aircraft_cb, 10)
 
@@ -355,6 +382,16 @@ class LandmarkVOPlot2DNode(Node):
         with self._lock:
             self._aircraft_data = data
 
+    def _parameters_cb(self, params):
+        """Handle dynamic parameter changes from rqt_reconfigure."""
+        result = SetParametersResult(successful=True)
+        for p in params:
+            if p.name == 'yaw_trim_deg':
+                self._yaw_trim_deg = float(p.value)
+            elif p.name == 'pitch_trim_deg':
+                self._pitch_trim_deg = float(p.value)
+        return result
+
     def _get_pose(self):
         """Return (x, y, yaw, use_estimated) in local ENU."""
         with self._lock:
@@ -454,6 +491,9 @@ class LandmarkVOPlot2DNode(Node):
         self._setup_figure()
         px, py, yaw, use_est = self._get_pose()
         kf_dx, kf_dy = self._get_kf_odom_offset()
+        # Effective heading = static offset + dynamic yaw trim; pitch trim for tilt
+        effective_heading_rad = self._heading_offset_rad + math.radians(self._yaw_trim_deg)
+        pitch_trim_rad = math.radians(self._pitch_trim_deg)
 
         with self._lock:
             landmarks = list(self._landmarks)
@@ -474,7 +514,7 @@ class LandmarkVOPlot2DNode(Node):
                 xc, yc, zc = world_to_camera(
                     lm['x'], lm['y'], 0.0,
                     px + self._cam_offset_x, py + self._cam_offset_y, self._cam_height,
-                    yaw, self._heading_offset_rad
+                    yaw, effective_heading_rad, pitch_trim_rad
                 )
                 uv = self._camera.project(xc, yc, zc)
                 if uv:
@@ -504,7 +544,7 @@ class LandmarkVOPlot2DNode(Node):
             lid = lm.get('id')
             lx, ly = lm['x'], lm['y']
             xc, yc, zc = world_to_camera(
-                lx, ly, 0.0, cam_x, cam_y, cam_z, yaw, self._heading_offset_rad
+                lx, ly, 0.0, cam_x, cam_y, cam_z, yaw, effective_heading_rad, pitch_trim_rad
             )
             uv = self._camera.project(xc, yc, zc)
             if uv:
@@ -549,9 +589,7 @@ class LandmarkVOPlot2DNode(Node):
                 })
 
         # Aircraft: predicted (KF) vs actual (odom) - same style as landmarks
-        ac_offset_x, ac_offset_y = 0.0, 0.0
-        if use_est and (kf_dx != 0 or kf_dy != 0):
-            ac_offset_x, ac_offset_y = -kf_dx, -kf_dy  # ac relative to KF trike for pred
+        # Aircraft (ax,ay) from state vectors are relative to odom trike; world = odom + (ax,ay)
         ac_pred_uvs = []
         ac_actual_uvs = []
         ac_residual_arrows = []
@@ -562,20 +600,20 @@ class LandmarkVOPlot2DNode(Node):
             ax, ay, az = ac['x'], ac['y'], ac['z']
             icao = ac.get('icao', '??????')
             dist_km = ac.get('dist_km', 0.0)
-            ac_world_pts.append((px + ax, py + ay))
-            ac_info.append((px + ax, py + ay, icao, dist_km))
-            # Predicted: KF projection (ac relative to KF trike)
-            ax_rel = ax + ac_offset_x
-            ay_rel = ay + ac_offset_y
+            ac_world_x = odom_px + ax
+            ac_world_y = odom_py + ay
+            ac_world_pts.append((ac_world_x, ac_world_y))
+            ac_info.append((ac_world_x, ac_world_y, icao, dist_km))
+            # Predicted: KF camera sees aircraft at (odom+ax) in world
             xc_p, yc_p, zc_p = world_to_camera_3d(
-                px + ax_rel, py + ay_rel, self._ref_alt + az,
-                cam_x, cam_y, cam_z, yaw, self._heading_offset_rad
+                ac_world_x, ac_world_y, self._ref_alt + az,
+                cam_x, cam_y, cam_z, yaw, effective_heading_rad, pitch_trim_rad
             )
             uv_pred = self._camera.project(xc_p, yc_p, zc_p) if zc_p > 0.1 else None
-            # Actual: odom projection (ac relative to odom trike, no offset)
+            # Actual: odom camera sees aircraft at (odom+ax) in world
             xc_a, yc_a, zc_a = world_to_camera_3d(
-                px + ax, py + ay, self._ref_alt + az,
-                cam_x, cam_y, cam_z, yaw, self._heading_offset_rad
+                ac_world_x, ac_world_y, self._ref_alt + az,
+                actual_cam_x, actual_cam_y, cam_z, yaw, effective_heading_rad, pitch_trim_rad
             )
             uv_actual = self._camera.project(xc_a, yc_a, zc_a) if zc_a > 0.1 else None
             if uv_pred and uv_actual:
@@ -678,7 +716,7 @@ class LandmarkVOPlot2DNode(Node):
         # HFoV cone from actual camera (always)
         hfov = self._camera.hfov_rad()
         half = hfov / 2.0
-        effective_yaw = yaw + self._heading_offset_rad
+        effective_yaw = yaw + effective_heading_rad
         cone_dist = min(extent_m * 0.3, 2000.0)
         left_ang = effective_yaw - half
         right_ang = effective_yaw + half
