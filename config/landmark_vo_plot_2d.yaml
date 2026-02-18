@@ -1,0 +1,47 @@
+# Landmark VO Plot 2D - Grasshopper left (Chameleon narrow) camera config
+# Trike stereo: left = narrow angle, right = wide angle
+# Camera optical axis aligned with MAVROS trike heading (yaw from odom)
+
+landmark_vo_plot_2d:
+  ros__parameters:
+    # Topics
+    odom_topic: "/mavros/local_position/odom"
+    pose_topic: ""  # Alternative: /mavros/local_position/pose
+    # ADS-B KF estimated position for predictions (not raw MAVROS odom)
+    estimated_position_topic: "/adsb/rtl_adsb_decoder_node/estimated_position"
+    mavros_local_frame: "enu"  # or "ned" to match MAVROS
+    landmarks_topic: "/vo/landmarks"
+    observations_topic: "/vo/landmark_observations"
+    camera_info_topic: "/stereo/left/camera_info"
+
+    # Publish rate and image size
+    publish_rate_hz: 5.0
+    image_width: 800
+    image_height: 800
+
+    # Grasshopper3 Chameleon narrow-angle left camera
+    # Typical for 1280x1024 or 1920x1200; override via camera_info when available
+    camera_fx: 1000.0
+    camera_fy: 1000.0
+    camera_cx: 640.0    # half of 1280
+    camera_cy: 512.0    # half of 1024
+    camera_width: 1280
+    camera_height: 1024
+
+    # Camera extrinsics (body frame: X forward, Y left, Z up)
+    cam_offset_x: 0.0   # m, forward offset
+    cam_offset_y: 0.0   # m, left offset
+    cam_height: 1.2     # m, height above ground
+    camera_heading_offset_deg: 0.0  # Add to trike yaw; use -45..45 if FOV cone/heading wrong
+    yaw_zero_direction: "east"  # "east"=ENU/ROS (yaw0=East), "north"=NED/aviation (yaw0=North)
+
+    # Demo mode: generate synthetic landmarks/obs when no real data
+    demo_mode: false
+
+    # ADS-B aircraft within visual range (camera FOV)
+    adsb_state_vectors_topic: "/adsb/adsb_aircraft_state_vectors_node/aircraft_state_vectors"
+    aircraft_observations_topic: ""  # Optional: JSON {"observations":[{"icao":"ABC123","u":320,"v":256}]}
+    enable_aircraft: true
+    aircraft_max_range_km: 8.0
+    aircraft_min_range_m: 50.0
+    world_view_extent_km: 20.0   # 20km x 20km (10km radius), centered on trike

@@ -63,6 +63,7 @@ install(PROGRAMS
   scripts/adsb_state_vectors_to_rviz_node.py
   scripts/adsb_state_vectors_plot_2d.py
   scripts/adsb_state_vectors_plot_glide.py
+  scripts/landmark_vo_plot_2d.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
