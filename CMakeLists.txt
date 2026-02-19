@@ -64,6 +64,7 @@ install(PROGRAMS
   scripts/adsb_state_vectors_plot_2d.py
   scripts/adsb_state_vectors_plot_glide.py
   scripts/landmark_vo_plot_2d.py
+  scripts/landmark_vo_plot_fisheye.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

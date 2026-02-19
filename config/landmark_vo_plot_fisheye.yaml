@@ -1,0 +1,31 @@
+# Spherical fisheye plot - pure equidistant projection
+# 180° FOV: center=zenith, edge=horizon. No pinhole FOV footprint.
+
+landmark_vo_plot_fisheye:
+  ros__parameters:
+    odom_topic: "/mavros/local_position/odom"
+    estimated_position_topic: "/adsb/rtl_adsb_decoder_node/estimated_position"
+    landmarks_topic: "/vo/landmarks"
+    observations_topic: "/vo/landmark_observations"
+    mavros_local_frame: "enu"
+    mavros_namespace: "/mavros"
+
+    publish_rate_hz: 5.0
+    image_size: 512     # Square circular plot (astronomy all-sky style)
+
+    cam_offset_x: 0.0
+    cam_offset_y: 0.0
+    cam_height: 1.2
+    camera_heading_offset_deg: 0.0
+    yaw_trim_deg: 0.0
+    pitch_trim_deg: 0.0
+
+    demo_mode: false
+    adsb_state_vectors_topic: "/adsb/adsb_aircraft_state_vectors_node/aircraft_state_vectors"
+    enable_aircraft: true
+    aircraft_max_range_km: 8.0
+    aircraft_min_range_m: 50.0
+    aircraft_log_offset_scale: 12.0   # px; 0=off; inward from circumference by log(dist)
+    camera_hfov_deg: 65.2
+    camera_vfov_deg: 54.2
+    show_camera_footprint: true

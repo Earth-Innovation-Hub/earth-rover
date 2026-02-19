@@ -641,6 +641,10 @@ class LandmarkVOPlot2DNode(Node):
         self._ax_img.text(0.02, 0.98, 'HFoV %.1f°  VFoV %.1f°' % (hfov_deg, vfov_deg),
                           transform=self._ax_img.transAxes, fontsize=7, color=COLOR_INNOVATION,
                           va='top', ha='left', bbox=dict(boxstyle='round', facecolor='black', alpha=0.5))
+        # Horizon line: v = cy + fy * tan(pitch); pitch 0 = horizon at vertical center
+        v_horizon = self._cam_cy + self._cam_fy * math.tan(pitch_trim_rad)
+        if 0 <= v_horizon <= self._cam_h:
+            self._ax_img.axhline(v_horizon, color='#6a9bd8', linewidth=1.5, linestyle='--', alpha=0.8, zorder=3)
 
         if pred_uvs:
             us, vs = zip(*pred_uvs)
@@ -667,11 +671,12 @@ class LandmarkVOPlot2DNode(Node):
             pu, pv = uv_pred[0], uv_pred[1]
             self._ax_img.plot(pu, pv, 'o', color=COLOR_KF, markersize=5, alpha=0.7, zorder=5)
 
-        # Image plane legend (blue=actual, orange=predicted, cyan=innovation)
+        # Image plane legend (blue=actual, orange=predicted, cyan=innovation, horizon)
         img_legend = [
             Line2D([0], [0], marker='o', color='w', markerfacecolor=COLOR_KF, markeredgecolor=COLOR_KF_EDGE, markersize=8, label='Predicted'),
             Line2D([0], [0], marker='x', color=COLOR_ACTUAL, markersize=10, markeredgewidth=2, label='Actual'),
             Line2D([0], [0], color=COLOR_INNOVATION, linewidth=2, label='Innovation'),
+            Line2D([0], [0], color='#6a9bd8', linewidth=2, linestyle='--', label='Horizon'),
         ]
         self._ax_img.legend(handles=img_legend, loc='upper right', fontsize=7)
 
