@@ -208,6 +208,47 @@
                         <div id="adsb-glide-plot-status" class="camera-status paused">Paused</div>
                     </div>
                 </div>
+                <!-- Row: Landmark VO 2D | Spherical Fisheye -->
+                <div class="grid grid-compact aircraft-top-row" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                    <div class="card camera-card aircraft-plot-card">
+                        <h2 class="card-title-sm">Landmark VO 2D (image plane + world)</h2>
+                        <div class="camera-controls">
+                            <button class="camera-btn" onclick="toggleCamera('landmark-vo-plot')">▶ Play</button>
+                            <select id="landmark-vo-plot-quality" onchange="updateCameraQuality('landmark-vo-plot')" style="font-size: 0.7em; padding: 2px 4px;">
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="low">Low</option>
+                                <option value="snapshot">Snapshot</option>
+                            </select>
+                        </div>
+                        <div id="landmark-vo-plot-container" class="camera-container aircraft-plot-container">
+                            <div class="camera-placeholder" onclick="startCamera('landmark-vo-plot')">
+                                <div class="camera-placeholder-icon">📐</div>
+                                <div>Click to Start</div>
+                            </div>
+                        </div>
+                        <div id="landmark-vo-plot-status" class="camera-status paused">Paused</div>
+                    </div>
+                    <div class="card camera-card aircraft-plot-card">
+                        <h2 class="card-title-sm">Spherical Fisheye (all-sky 180°)</h2>
+                        <div class="camera-controls">
+                            <button class="camera-btn" onclick="toggleCamera('landmark-vo-fisheye')">▶ Play</button>
+                            <select id="landmark-vo-fisheye-quality" onchange="updateCameraQuality('landmark-vo-fisheye')" style="font-size: 0.7em; padding: 2px 4px;">
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="low">Low</option>
+                                <option value="snapshot">Snapshot</option>
+                            </select>
+                        </div>
+                        <div id="landmark-vo-fisheye-container" class="camera-container aircraft-plot-container">
+                            <div class="camera-placeholder" onclick="startCamera('landmark-vo-fisheye')">
+                                <div class="camera-placeholder-icon">🌐</div>
+                                <div>Click to Start</div>
+                            </div>
+                        </div>
+                        <div id="landmark-vo-fisheye-status" class="camera-status paused">Paused</div>
+                    </div>
+                </div>
             </div>
         </div>
 

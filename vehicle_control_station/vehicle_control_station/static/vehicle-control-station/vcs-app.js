@@ -329,7 +329,9 @@ const cameras = {
     'fisheye': { topic: '/camera/fisheye1/image_raw', active: false, quality: 'medium' },
     'spectrometer-plot': { topic: '/spectrometer_plot', active: false, quality: 'medium' },
     'adsb-plot': { topic: '/adsb_state_vectors_plot_2d/aircraft_plot_image', active: false, quality: 'medium' },
-    'adsb-glide-plot': { topic: '/adsb_state_vectors_plot_glide/aircraft_plot_glide_image', active: false, quality: 'medium' }
+    'adsb-glide-plot': { topic: '/adsb_state_vectors_plot_glide/aircraft_plot_glide_image', active: false, quality: 'medium' },
+    'landmark-vo-plot': { topic: '/landmark_vo_plot_2d/landmark_vo_plot_image', active: false, quality: 'medium' },
+    'landmark-vo-fisheye': { topic: '/landmark_vo_plot_fisheye/fisheye_panorama', active: false, quality: 'medium' }
 };
 
 const qualitySettings = {
@@ -347,12 +349,25 @@ const squareQualitySettings = {
     'snapshot': '?quality=60&width=640&height=640'
 };
 
+/* Landmark VO 2D publishes 1600x800 (2:1); match source to preserve resolution */
+const widePlotQualitySettings = {
+    'high': '?quality=85&width=1600&height=800',
+    'medium': '?quality=70&width=1280&height=640',
+    'low': '?quality=50&width=640&height=320',
+    'snapshot': '?quality=75&width=1600&height=800'
+};
+
 function getCameraStreamUrl(cameraId) {
     const camera = cameras[cameraId];
-    const useSquare = (cameraId === 'adsb-plot' || cameraId === 'adsb-glide-plot' || cameraId === 'spectrometer-plot');
-    const quality = useSquare
-        ? (squareQualitySettings[camera.quality] || squareQualitySettings['medium'])
-        : (qualitySettings[camera.quality] || qualitySettings['medium']);
+    let quality;
+    if (cameraId === 'landmark-vo-plot') {
+        quality = widePlotQualitySettings[camera.quality] || widePlotQualitySettings['medium'];
+    } else if (cameraId === 'adsb-plot' || cameraId === 'adsb-glide-plot' || cameraId === 'spectrometer-plot' ||
+        cameraId === 'landmark-vo-fisheye') {
+        quality = squareQualitySettings[camera.quality] || squareQualitySettings['medium'];
+    } else {
+        quality = qualitySettings[camera.quality] || qualitySettings['medium'];
+    }
     
     if (camera.quality === 'snapshot') {
         return `${VCS_CONFIG.video_server_url}/snapshot${quality}&topic=${camera.topic}`;

@@ -11,7 +11,7 @@ landmark_vo_plot_fisheye:
     mavros_namespace: "/mavros"
 
     publish_rate_hz: 5.0
-    image_size: 512     # Square circular plot (astronomy all-sky style)
+    image_size: 640     # Square circular plot (astronomy all-sky style)
 
     cam_offset_x: 0.0
     cam_offset_y: 0.0

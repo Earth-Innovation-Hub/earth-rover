@@ -25,6 +25,7 @@ def _import_matplotlib():
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
+        plt.rcParams.update({'figure.facecolor': '#0a0a0f', 'axes.facecolor': '#0a0a0f'})
         return plt
     except (ImportError, AttributeError) as e:
         err = str(e)
@@ -33,7 +34,7 @@ def _import_matplotlib():
         raise
 
 import rclpy
-from matplotlib.patches import Circle, Polygon
+from matplotlib.patches import Circle, Polygon, Rectangle
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import String
@@ -115,7 +116,7 @@ class PolarFisheyeProjection:
         self.size = size
         self.cx = size / 2.0
         self.cy = size / 2.0
-        self.radius_max = (size / 2.0) * 0.98  # horizon = circle edge (whole sky)
+        self.radius_max = size / 2.0  # horizon = circle edge (whole sky)
 
     def project(self, x_cam: float, y_cam: float, z_cam: float):
         """Project 3D point in camera frame to (u, v). Returns None if behind horizon."""
@@ -126,8 +127,6 @@ class PolarFisheyeProjection:
         cos_zenith = max(-1.0, min(1.0, -y_cam / r))
         zenith_angle_rad = math.acos(cos_zenith)
         zenith_angle_deg = math.degrees(zenith_angle_rad)
-        if zenith_angle_deg > 120.0:
-            return None  # below horizon (allow 30° past for low-elevation aircraft)
         # Azimuth: forward = +Z, angle in horizontal plane. phi = atan2(x, z)
         phi = math.atan2(x_cam, z_cam)
         # Equidistant: r_proj = radius_max * (zenith_angle / 90°)
@@ -147,7 +146,7 @@ class LandmarkVOPlotFisheyeNode(Node):
         self.declare_parameter('observations_topic', '/vo/landmark_observations')
         self.declare_parameter('mavros_local_frame', 'enu')
         self.declare_parameter('publish_rate_hz', 5.0)
-        self.declare_parameter('image_size', 512)  # Square circular plot (astronomy style)
+        self.declare_parameter('image_size', 640)  # Square circular plot (astronomy style)
         self.declare_parameter('cam_offset_x', 0.0)
         self.declare_parameter('cam_offset_y', 0.0)
         self.declare_parameter('cam_height', 1.2)
@@ -438,6 +437,8 @@ class LandmarkVOPlotFisheyeNode(Node):
             self._ax.set_xlim(0, self._img_size)
             self._ax.set_ylim(self._img_size, 0)
             self._ax.set_aspect('equal')
+            self._fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+            self._fig.patch.set_facecolor('#0a0a0f')
 
         ax = self._ax
         ax.clear()
@@ -446,10 +447,15 @@ class LandmarkVOPlotFisheyeNode(Node):
         ax.set_ylim(self._img_size, 0)
         ax.set_aspect('equal')
         ax.axis('off')
+        ax.set_position([0, 0, 1, 1])
 
-        # Circular boundary (horizon) + fill - astronomy all-sky style
+        # Dark fill for entire axes (eliminates white corners)
+        bg = Rectangle((0, 0), self._img_size, self._img_size, facecolor='#0a0a0f', edgecolor='none', zorder=0)
+        ax.add_patch(bg)
+
+        # Circular boundary (horizon) + fill - astronomy all-sky style (full radius)
         cx, cy = self._img_size / 2.0, self._img_size / 2.0
-        R = (self._img_size / 2.0) * 0.98
+        R = self._img_size / 2.0
         circle = Circle((cx, cy), R, facecolor='#0d0d12', edgecolor='#3a3a4a', linewidth=2)
         ax.add_patch(circle)
         # Camera footprint (image-plane FOV on night sky)
@@ -471,9 +477,10 @@ class LandmarkVOPlotFisheyeNode(Node):
                                linewidth=2, alpha=0.5, zorder=5)
             ax.add_patch(footprint)
         # Cardinal marks at horizon (Fwd=phi 0 = top, match projection)
+        label_offset = min(12, R * 0.04)
         for dx, dy, lbl in [(0, 1, 'Fwd'), (1, 0, 'R'), (0, -1, 'Back'), (-1, 0, 'L')]:
-            ax.plot(cx + dx * R, cy - dy * R, 'o', color='#4a4a5a', markersize=4)
-            ax.text(cx + dx * (R + 14), cy - dy * (R + 14), lbl, fontsize=8, color='#6a6a7a', ha='center', va='center')
+            ax.plot(cx + dx * R, cy - dy * R, 'o', color='#4a4a5a', markersize=3)
+            ax.text(cx + dx * (R + label_offset), cy - dy * (R + label_offset), lbl, fontsize=7, color='#6a6a7a', ha='center', va='center')
 
         # Landmarks: predicted (orange) vs actual (blue)
         if lm_pred_uv:
@@ -503,9 +510,9 @@ class LandmarkVOPlotFisheyeNode(Node):
                 ax.text(u, v - 8, icao, fontsize=7, color=COLOR_AIRCRAFT, ha='center', va='top', zorder=7)
                 ax.text(u, v + 6, '%.2fkm' % dist_km, fontsize=6, color='#888', ha='center', va='bottom', zorder=7)
 
-        # Title - center top inside circle
-        ax.text(0.5, 0.96, 'Spherical Fisheye 180° | Predicted (O) vs Actual (X)', transform=ax.transAxes,
-                fontsize=9, color='#aaa', ha='center', va='top')
+        # Title - compact, top inside circle
+        ax.text(0.5, 0.02, '180° All-Sky | O=Pred X=Actual', transform=ax.transAxes,
+                fontsize=8, color='#6a6a7a', ha='center', va='bottom')
 
         self._fig.canvas.draw()
         w, h = self._fig.canvas.get_width_height()
