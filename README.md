@@ -122,7 +122,7 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 
 ---
 
-# deepgis-vehicles ROS2 Package
+# deepgis_vehicles ROS2 Package
 
 ROS2 package for connecting with Pixhawk PX4 autopilot using MAVROS2. Launch files for the Earth Rover stack (vehicle interface, full system, SDR, ADS-B) live in this repository under **launch/**; they expect the `deepgis_vehicles` package to be built in your ROS 2 workspace (e.g. `~/ros2_ws`).
 
@@ -181,7 +181,7 @@ sudo geographiclib-get-geoids egm96-5
 
 ```bash
 cd ~/ros2_ws
-colcon build --packages-select deepgis-vehicles
+colcon build --packages-select deepgis_vehicles
 source install/setup.bash
 ```
 
@@ -192,7 +192,7 @@ source install/setup.bash
 For testing with PX4 SITL:
 
 ```bash
-ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="udp://:14540@127.0.0.1:14557"
 ```
 
@@ -207,7 +207,7 @@ ls -la /dev/serial/by-id/
 
 Then launch with the serial-by-id path (recommended for stability):
 ```bash
-ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="/dev/serial/by-id/usb-3D_Robotics_PX4_FMU_v2.x_0-if00:57600"
 ```
 
@@ -215,13 +215,13 @@ ros2 launch deepgis-vehicles vehicle_interface.launch.py \
 
 For a Pixhawk connected via USB:
 ```bash
-ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="/dev/ttyUSB0:57600"
 ```
 
 For a Pixhawk connected via ACM:
 ```bash
-ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="/dev/ttyACM0:57600"
 ```
 
@@ -272,7 +272,7 @@ The node provides access to MAVROS2 services:
 
 ```bash
 # In one terminal, launch the interface
-ros2 launch deepgis-vehicles vehicle_interface.launch.py
+ros2 launch deepgis_vehicles vehicle_interface.launch.py
 
 # In another terminal, arm the vehicle
 ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"
