@@ -1,0 +1,24 @@
+[Unit]
+Description=Archive yesterday's data from Extreme SSD to the 22TB NAS
+Documentation=file:%h/earth-rover/scripts/startup/rsync_archive.sh
+# Skip cleanly if the source isn't mounted (the script also checks, but
+# this lets systemd avoid spawning anything at all).
+ConditionPathIsMountPoint=/media/jdas/Extreme_SSD
+# Network must be up before we attempt the SSH preflight.
+Wants=network-online.target
+After=network-online.target
+# Kept deliberately separate from er-mission.target so a transfer never
+# blocks (or is blocked by) the rover stack.
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/earth-rover/secrets.env
+ExecStart=/bin/bash -lc 'exec %h/earth-rover/scripts/startup/rsync_archive.sh'
+TimeoutStartSec=infinity
+Nice=19
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

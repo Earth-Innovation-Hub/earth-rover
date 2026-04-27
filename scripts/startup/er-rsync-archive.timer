@@ -1,0 +1,15 @@
+[Unit]
+Description=Daily archive of yesterday's data from Extreme SSD to the 22TB NAS
+Documentation=file:%h/earth-rover/scripts/startup/rsync_archive.sh
+
+[Timer]
+# Fire 5 minutes after a normal login/boot (matches "on startup" intent),
+# AND every day at 03:00 local time so long-running sessions still archive.
+OnStartupSec=5min
+OnCalendar=*-*-* 03:00:00
+# If the machine was off at 03:00, run as soon as it boots.
+Persistent=true
+Unit=er-rsync-archive.service
+
+[Install]
+WantedBy=timers.target

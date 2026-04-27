@@ -64,6 +64,17 @@ python3 "${EARTH_ROVER_HOME}/scripts/startup/install_user_units.py" \
     --output-dir "$USER_UNIT_DIR" \
     "${PASSTHROUGH[@]}"
 
+# ---- Hand-written sidecar units (kept alongside the auto-generated ones) ----
+# These are NOT part of the mission graph -- they cover periodic maintenance
+# like the SSD->NAS archive rsync.
+for sidecar in er-rsync-archive.service er-rsync-archive.timer; do
+    src="${EARTH_ROVER_HOME}/scripts/startup/${sidecar}"
+    if [ -f "$src" ]; then
+        install -m 0644 "$src" "${USER_UNIT_DIR}/${sidecar}"
+        echo "[install_user_units] installed sidecar unit ${sidecar}"
+    fi
+done
+
 # ---- Tear down legacy XDG autostart (kiosk is now systemd-managed) ----------
 if [ -L "$LEGACY_KIOSK_AUTOSTART" ] || [ -f "$LEGACY_KIOSK_AUTOSTART" ]; then
     rm -f "$LEGACY_KIOSK_AUTOSTART"
@@ -75,12 +86,15 @@ fi
 if [ "$ENABLE_MISSION" -eq 1 ]; then
     systemctl --user enable --now er-mission.target
     systemctl --user enable er-kiosk.service || true
+    systemctl --user enable --now er-rsync-archive.timer || true
     echo "[install_user_units] er-mission.target enabled and started."
     echo "[install_user_units] er-kiosk.service enabled (will fire on graphical login)."
+    echo "[install_user_units] er-rsync-archive.timer enabled (boot+5min and daily 03:00)."
     systemctl --user list-units 'er-*' --all | head -25
 else
     echo
     echo "[install_user_units] To enable the full mission stack at login:"
     echo "    systemctl --user enable --now er-mission.target"
-    echo "    systemctl --user enable er-kiosk.service       # fires on graphical login"
+    echo "    systemctl --user enable er-kiosk.service          # fires on graphical login"
+    echo "    systemctl --user enable --now er-rsync-archive.timer  # SSD->NAS archive"
 fi
