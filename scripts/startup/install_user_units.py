@@ -29,11 +29,12 @@ SERVICE_TEMPLATE = """\
 # Edit scripts/startup/mission.yaml then re-run install_user_units.sh.
 [Unit]
 Description={description}
-PartOf=er-mission.target
-{after_line}{wants_line}{requires_line}
+PartOf={part_of}
+{after_line}{wants_line}{requires_line}{condition_line}
 
 [Service]
 Type={unit_type}
+EnvironmentFile=-%h/.config/earth-rover/secrets.env
 {env_lines}\
 ExecStart=/bin/bash -lc {exec_quoted}
 {restart_line}\
@@ -41,7 +42,7 @@ StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=er-mission.target
+WantedBy={wanted_by}
 """
 
 
@@ -88,6 +89,21 @@ def emit_service(svc: dict, defaults: dict) -> tuple[str, str]:
     # Build After= / Requires= referencing the matching er-<dep>.service.
     after_deps = [f"er-{d}.service" for d in svc.get("after", []) or []]
     requires_deps = [f"er-{d}.service" for d in svc.get("requires", []) or []]
+
+    # Services that need a graphical session (e.g. kiosk Firefox) bind to
+    # graphical-session.target instead of er-mission.target so they fire only
+    # AFTER the desktop is up, and only ONCE per login.
+    needs_display = bool(svc.get("needs_display"))
+    if needs_display:
+        after_deps.append("graphical-session.target")
+        part_of = "graphical-session.target"
+        wanted_by = "graphical-session.target"
+        condition_line = "ConditionEnvironment=DISPLAY\n"
+    else:
+        part_of = "er-mission.target"
+        wanted_by = "er-mission.target"
+        condition_line = ""
+
     after_line = f"After={' '.join(after_deps)}\n" if after_deps else ""
     wants_line = ""  # use Requires= for hard deps; Wants= adds noise here
     requires_line = (
@@ -105,17 +121,26 @@ def emit_service(svc: dict, defaults: dict) -> tuple[str, str]:
     )
     full_cmd = f"{ros_setup} {svc['exec']}"
 
-    # oneshot type: no Restart=, fast precondition checks
+    # Restart policy:
+    #   oneshot           -> no restart, RemainAfterExit so deps see "active"
+    #   optional: true    -> Restart=no  (don't crash-loop on missing hardware
+    #                                     or unbuilt packages; failure is OK)
+    #   default           -> Restart=on-failure with a 5s backoff
     if unit_type == "oneshot":
         restart_line = "RemainAfterExit=yes\n"
+    elif svc.get("optional"):
+        restart_line = "Restart=no\n"
     else:
         restart_line = "Restart=on-failure\nRestartSec=5\n"
 
     contents = SERVICE_TEMPLATE.format(
         description=description.strip(),
+        part_of=part_of,
+        wanted_by=wanted_by,
         after_line=after_line,
         wants_line=wants_line,
         requires_line=requires_line,
+        condition_line=condition_line,
         unit_type=unit_type,
         env_lines=build_env_block(defaults, svc),
         exec_quoted=shell_quote(full_cmd),
@@ -127,7 +152,14 @@ def emit_service(svc: dict, defaults: dict) -> tuple[str, str]:
 def emit_target(mission: dict, services: list[dict]) -> tuple[str, str]:
     target_name = mission.get("target", "er-mission.target")
 
-    unit_names = [f"er-{s['id']}.service" for s in services]
+    # graphical-session-bound services (e.g. kiosk) are intentionally NOT
+    # pulled in by the headless mission target; they fire from
+    # graphical-session.target after the desktop comes up.
+    unit_names = [
+        f"er-{s['id']}.service"
+        for s in services
+        if not s.get("needs_display")
+    ]
     contents = TARGET_TEMPLATE.format(
         description=mission.get("name", "Earth Rover Mission"),
         wants=" ".join(unit_names),

@@ -63,7 +63,7 @@ services:
   - id: serial-pub
     name: Serial Data Publisher
     tier: 1
-    exec: 'cd /home/jdas && exec python3 ros_publish_serial.py'
+    exec: 'cd /home/jdas/src/scripts && exec python3 ros_publish_serial.py'
     description: Publishes /serial_data from the rover's USB serial bridge.
     optional: true
 
@@ -169,10 +169,10 @@ services:
     optional: true
 
   - id: deepgis-gps
-    name: DeepGIS GPS Publisher
+    name: DeepGIS Telemetry Publisher
     tier: 2
     after: [mavros]
-    exec: 'exec ros2 run deepgis_vehicles deepgis_gps_publisher.py'
+    exec: 'exec ros2 run deepgis_vehicles deepgis_telemetry_publisher.py'
     description: Forwards MAVROS GPS to the DeepGIS telemetry channel.
     optional: true
 

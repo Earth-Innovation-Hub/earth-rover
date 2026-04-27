@@ -19,24 +19,24 @@ EARTH_ROVER_HOME="${EARTH_ROVER_HOME:-/home/jdas/earth-rover}"
 USER_UNIT_DIR="${HOME}/.config/systemd/user"
 AUTOSTART_DIR="${HOME}/.config/autostart"
 MISSION_YAML="${MISSION_YAML:-${EARTH_ROVER_HOME}/scripts/startup/mission.yaml}"
-KIOSK_DESKTOP="${EARTH_ROVER_HOME}/scripts/startup/earth-rover-kiosk.desktop"
+LEGACY_KIOSK_AUTOSTART="${AUTOSTART_DIR}/earth-rover-kiosk.desktop"
 
 ENABLE_MISSION=0
-ENABLE_KIOSK=0
-NO_AUTOSTART=0
 PASSTHROUGH=()
 
 usage() {
     cat <<EOF
 Usage: install_user_units.sh [options]
 
-Generates systemd --user units from mission.yaml and (optionally) wires up
-the Firefox kiosk autostart for graphical sessions.
+Generates systemd --user units from mission.yaml.
+
+The kiosk service (er-kiosk.service, marked needs_display in mission.yaml) is
+bound to graphical-session.target, so it fires automatically once GNOME (or
+any logind graphical session) comes up.  We deliberately do NOT install an
+XDG autostart .desktop entry to avoid double-firing Firefox.
 
 Options:
   --enable-mission    systemctl --user enable --now er-mission.target after install
-  --enable-kiosk      symlink earth-rover-kiosk.desktop into ~/.config/autostart/
-  --no-autostart      do not touch ~/.config/autostart/ at all
   --dry-run           show generated units without writing
   -h, --help          this help
 EOF
@@ -45,8 +45,6 @@ EOF
 while [ $# -gt 0 ]; do
     case "$1" in
         --enable-mission) ENABLE_MISSION=1 ;;
-        --enable-kiosk)   ENABLE_KIOSK=1 ;;
-        --no-autostart)   NO_AUTOSTART=1 ;;
         --dry-run)        PASSTHROUGH+=("--dry-run") ;;
         -h|--help)        usage; exit 0 ;;
         *)                PASSTHROUGH+=("$1") ;;
@@ -66,23 +64,23 @@ python3 "${EARTH_ROVER_HOME}/scripts/startup/install_user_units.py" \
     --output-dir "$USER_UNIT_DIR" \
     "${PASSTHROUGH[@]}"
 
-# ---- XDG autostart for the kiosk ---------------------------------------------
-if [ "$NO_AUTOSTART" -eq 0 ] && [ "$ENABLE_KIOSK" -eq 1 ]; then
-    mkdir -p "$AUTOSTART_DIR"
-    ln -sf "$KIOSK_DESKTOP" "$AUTOSTART_DIR/earth-rover-kiosk.desktop"
-    echo "[install_user_units] enabled kiosk autostart via $AUTOSTART_DIR/earth-rover-kiosk.desktop"
-elif [ "$NO_AUTOSTART" -eq 0 ]; then
-    echo "[install_user_units] kiosk autostart NOT enabled.  Enable with:"
-    echo "    ln -sf $KIOSK_DESKTOP $AUTOSTART_DIR/earth-rover-kiosk.desktop"
+# ---- Tear down legacy XDG autostart (kiosk is now systemd-managed) ----------
+if [ -L "$LEGACY_KIOSK_AUTOSTART" ] || [ -f "$LEGACY_KIOSK_AUTOSTART" ]; then
+    rm -f "$LEGACY_KIOSK_AUTOSTART"
+    echo "[install_user_units] removed legacy XDG autostart entry: $LEGACY_KIOSK_AUTOSTART"
+    echo "    (kiosk now fires via er-kiosk.service bound to graphical-session.target)"
 fi
 
 # ---- enable the mission target -----------------------------------------------
 if [ "$ENABLE_MISSION" -eq 1 ]; then
     systemctl --user enable --now er-mission.target
+    systemctl --user enable er-kiosk.service || true
     echo "[install_user_units] er-mission.target enabled and started."
+    echo "[install_user_units] er-kiosk.service enabled (will fire on graphical login)."
     systemctl --user list-units 'er-*' --all | head -25
 else
     echo
     echo "[install_user_units] To enable the full mission stack at login:"
     echo "    systemctl --user enable --now er-mission.target"
+    echo "    systemctl --user enable er-kiosk.service       # fires on graphical login"
 fi
