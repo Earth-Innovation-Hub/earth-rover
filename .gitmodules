@@ -1,3 +1,11 @@
 [submodule "kernelcal"]
 	path = kernelcal
 	url = https://github.com/darknight-007/kernelcal.git
+[submodule "external/deepgis_vision"]
+	path = external/deepgis_vision
+	url = https://github.com/darknight-007/deepgis_vision.git
+	branch = main
+[submodule "external/metavision_driver"]
+	path = external/metavision_driver
+	url = https://github.com/darknight-007/metavision_driver.git
+	branch = master

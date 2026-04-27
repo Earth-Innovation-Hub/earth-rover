@@ -81,21 +81,14 @@ else
     echo "  └─ SKIP: launch_grasshopper.sh not found (GRASSHOPPER_LAUNCH=$GRASSHOPPER_LAUNCH)"
 fi
 
-# 4. Spectrometer Data Publisher (source: spectrometer_ocean_optics, installs as spectrometery_ros2)
+# 4. Spectrometer Data Publisher (package: spectrometery_ros2, lives in earth-rover/packages/)
 echo "[4/15] Starting Spectrometer Data Publisher..."
-SPECTROMETER_PY=""
-for p in "$ROS2_WS/src/spectrometer_ocean_optics/src/Spectrometer_Data_Publisher.py" \
-         "$ROS2_WS/src/spectrometery_ros2/src/Spectrometer_Data_Publisher.py"; do
-    if [ -f "$p" ]; then
-        SPECTROMETER_PY="$p"
-        break
-    fi
-done
-if [ -n "$SPECTROMETER_PY" ]; then
-    nohup python3 "$SPECTROMETER_PY" > "$LOG_DIR/spectrometer.log" 2>&1 &
+if ros2 pkg list 2>/dev/null | grep -q spectrometery_ros2; then
+    nohup ros2 run spectrometery_ros2 Spectrometer_Data_Publisher.py \
+        > "$LOG_DIR/spectrometer.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/spectrometer.log)"
 else
-    echo "  └─ SKIP: Spectrometer_Data_Publisher.py not found"
+    echo "  └─ SKIP: spectrometery_ros2 not found (source ros2_ws/install/setup.bash?)"
 fi
 
 # 5. Spectrometer Intensity Plot (image topic for VCS; no GUI)

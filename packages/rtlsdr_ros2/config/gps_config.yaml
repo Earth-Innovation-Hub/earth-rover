@@ -1,0 +1,42 @@
+# GPS Reader Configuration for RTL-SDR ROS2 Package
+# Tuned to GPS L1 frequency (1575.42 MHz)
+
+gps_reader:
+  ros__parameters:
+    # Device configuration
+    device_index: 0                    # RTL-SDR device index (0 for first device)
+    
+    # GPS L1 frequency: 1575.42 MHz
+    center_frequency: 1575.42e6         # GPS L1 center frequency in Hz
+    
+    # RF configuration
+    sample_rate: 2.048e6                 # Sample rate in Hz (2.048 MSps recommended)
+    gain: 'auto'                         # Gain: 'auto' or value in dB (higher gain recommended for weak GPS signals)
+    
+    # Sampling configuration
+    num_samples: 16384                   # Number of samples per read (larger for GPS processing)
+    publish_rate: 5.0                    # Publishing rate in Hz
+    
+    # Signal analysis
+    enable_signal_analysis: true        # Enable GPS signal quality analysis
+    
+    # Position decoding
+    enable_position_decoding: true     # Enable GPS position decoding and publishing
+    min_snr_for_fix: 5.0               # Minimum SNR (dB) required for position fix
+
+# GPS Signal Notes:
+# - GPS L1 C/A code: 1575.42 MHz
+# - GPS signals are very weak (-130 dBm typical)
+# - Requires good outdoor antenna with clear view of sky
+# - GPS patch antenna recommended
+# - Higher gain settings (20-40 dB) may be needed
+# - Sample rates: 2.048 MSps or higher recommended for GPS processing
+
+# Alternative GPS frequencies:
+# - GPS L2: 1227.60 MHz (requires L2-capable receiver)
+# - GLONASS L1: 1602.0 MHz
+# - Galileo E1: 1575.42 MHz (same as GPS L1)
+
+# Example high-gain configuration:
+# gain: 40.0  # Manual gain in dB for weak signals
+

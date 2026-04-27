@@ -120,7 +120,7 @@ services:
   - id: spectrometer
     name: Ocean Optics Spectrometer
     tier: 1
-    exec: 'exec python3 ${ROS2_WS}/src/spectrometer_ocean_optics/src/Spectrometer_Data_Publisher.py'
+    exec: 'exec ros2 run spectrometery_ros2 Spectrometer_Data_Publisher.py'
     description: Spectrometer readings publisher.
     optional: true
     health_topic: /spectrometer

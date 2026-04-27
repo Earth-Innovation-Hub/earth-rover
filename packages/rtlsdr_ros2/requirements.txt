@@ -1,0 +1,13 @@
+# RTL-SDR ROS2 Package Requirements
+
+# RTL-SDR Python Library
+pyrtlsdr>=0.2.93
+
+# Numerical computing
+numpy>=1.19.0
+
+# ROS2 dependencies (typically installed via apt)
+# rclpy
+# std_msgs
+# sensor_msgs
+

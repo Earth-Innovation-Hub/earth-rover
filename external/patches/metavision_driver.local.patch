@@ -1,0 +1,26 @@
+diff --git a/launch/driver_node.launch.py b/launch/driver_node.launch.py
+index 5ebb8ad..edc3676 100644
+--- a/launch/driver_node.launch.py
++++ b/launch/driver_node.launch.py
+@@ -65,13 +65,14 @@ def launch_setup(context, *args, **kwargs):
+         ],
+         remappings=[],
+     )
+-    preload = SetEnvironmentVariable(
+-        name="LD_PRELOAD", value="/usr/lib/gcc/x86_64-linux-gnu/13/libasan.so"
+-    )
+-    asan_options = SetEnvironmentVariable(
+-        name="ASAN_OPTIONS", value="new_delete_type_mismatch=0"
+-    )
+-    return [preload, asan_options, node]
++    # ASAN preload commented out - only needed for debugging with AddressSanitizer
++    # preload = SetEnvironmentVariable(
++    #     name="LD_PRELOAD", value="/usr/lib/gcc/x86_64-linux-gnu/13/libasan.so"
++    # )
++    # asan_options = SetEnvironmentVariable(
++    #     name="ASAN_OPTIONS", value="new_delete_type_mismatch=0"
++    # )
++    return [node]  # [preload, asan_options, node]
+ 
+ 
+ def generate_launch_description():

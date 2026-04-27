@@ -1,0 +1,125 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 36ae9c5..0736d24 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -2,10 +2,10 @@ cmake_minimum_required(VERSION 3.5)
+ project(orbslam3)
+ 
+ # You should set the PYTHONPATH to your own python site-packages path
+-set(ENV{PYTHONPATH} "/opt/ros/foxy/lib/python3.8/site-packages/")
+-set(ENV{ORB_SLAM3_INCLUDE_DIR} "/home/bushman/ORB-SLAM3-STEREO-FIXED/include/")
+-set(ENV{ORB_SLAM3_LIBRARY} "/home/bushman/ORB-SLAM3-STEREO-FIXED/lib/")
+-set(ENV{ORB_SLAM3_ROOT_DIR} "/home/bushman/ORB-SLAM3-STEREO-FIXED/") 
++set(ENV{PYTHONPATH} "/opt/ros/humble/lib/python3.10/site-packages/")
++# set(ENV{ORB_SLAM3_INCLUDE_DIR} "~/ORB-SLAM3-STEREO-FIXED/include/")
++# set(ENV{ORB_SLAM3_LIBRARY} "~/ORB-SLAM3-STEREO-FIXED/lib/")
++# set(ENV{ORB_SLAM3_ROOT_DIR} "~/ORB-SLAM3-STEREO-FIXED/")
+ 
+ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules)
+ 
+@@ -57,20 +57,20 @@ add_executable(rgbd
+ )
+ ament_target_dependencies(rgbd rclcpp sensor_msgs cv_bridge message_filters ORB_SLAM3 Pangolin)
+ 
+-add_executable(stereo
+-  src/stereo/stereo.cpp
+-  src/stereo/stereo-slam-node.cpp
+-)
+-ament_target_dependencies(stereo rclcpp sensor_msgs  cv_bridge message_filters
+-ORB_SLAM3 Pangolin)
++#add_executable(stereo
++#  src/stereo/stereo.cpp
++#  src/stereo/stereo-slam-node.cpp
++#)
++#ament_target_dependencies(stereo rclcpp sensor_msgs  cv_bridge message_filters
++#ORB_SLAM3 Pangolin)
+ 
+-add_executable(stereo-inertial
+-  src/stereo-inertial/stereo-inertial.cpp
+-  src/stereo-inertial/stereo-inertial-node.cpp
+-)
+-ament_target_dependencies(stereo-inertial rclcpp sensor_msgs  cv_bridge ORB_SLAM3 Pangolin)
++#add_executable(stereo-inertial
++#  src/stereo-inertial/stereo-inertial.cpp
++#  src/stereo-inertial/stereo-inertial-node.cpp
++#)
++#ament_target_dependencies(stereo-inertial rclcpp sensor_msgs  cv_bridge ORB_SLAM3 Pangolin)
+ 
+-install(TARGETS mono rgbd stereo stereo-inertial
++install(TARGETS mono rgbd 
+   DESTINATION lib/${PROJECT_NAME})
+ 
+ # Install launch files.
+diff --git a/CMakeModules/FindORB_SLAM3.cmake b/CMakeModules/FindORB_SLAM3.cmake
+index 512e3d9..1f640e9 100644
+--- a/CMakeModules/FindORB_SLAM3.cmake
++++ b/CMakeModules/FindORB_SLAM3.cmake
+@@ -5,7 +5,7 @@
+ #
+ # To help the search ORB_SLAM3_ROOT_DIR environment variable as the path to ORB_SLAM3 root folder
+ #  e.g. `set( ORB_SLAM3_ROOT_DIR=~/ORB_SLAM3) `
+-set(ORB_SLAM3_ROOT_DIR "/home/bushman/ORB-SLAM3-STEREO-FIXED/")
++set(ORB_SLAM3_ROOT_DIR "~/ORB-SLAM3-STEREO-FIXED/")
+ 
+ # message(${ORB_SLAM3_ROOT_DIR})
+ # message(${ORB_SLAM3_ROOT_DIR}/include)
+diff --git a/src/monocular/mono.cpp b/src/monocular/mono.cpp
+index 0c071bc..4e58f1b 100644
+--- a/src/monocular/mono.cpp
++++ b/src/monocular/mono.cpp
+@@ -21,9 +21,9 @@ int main(int argc, char **argv)
+ 
+     // malloc error using new.. try shared ptr
+     // Create SLAM system. It initializes all system threads and gets ready to process frames.
+-    bool visualization = false;
++    bool visualization = true;
+     ORB_SLAM3::System SLAM(argv[1], argv[2], ORB_SLAM3::System::MONOCULAR, visualization);
+-        auto node = std::make_shared<MonocularSlamNode>(&SLAM, argv[1], argv[2]);
++    auto node = std::make_shared<MonocularSlamNode>(&SLAM, argv[1], argv[2]);
+ //    auto node = std::make_shared<MonocularSlamNode>(&SLAM);
+     std::cout << "============================ " << std::endl;\
+ 
+diff --git a/src/monocular/monocular-slam-node.cpp b/src/monocular/monocular-slam-node.cpp
+index 887c82c..78fe48e 100644
+--- a/src/monocular/monocular-slam-node.cpp
++++ b/src/monocular/monocular-slam-node.cpp
+@@ -1,6 +1,6 @@
+ #include "monocular-slam-node.hpp"
+ 
+-#include<opencv2/core/core.hpp>
++#include <opencv2/core/core.hpp>
+ 
+ #include "MapPoint.h"
+ #include "Converter.h"
+diff --git a/src/monocular/monocular-slam-node.hpp b/src/monocular/monocular-slam-node.hpp
+index a8f6722..ad8ea43 100644
+--- a/src/monocular/monocular-slam-node.hpp
++++ b/src/monocular/monocular-slam-node.hpp
+@@ -14,11 +14,11 @@
+ #include "utility.hpp"
+ #include "Converter.h"
+ 
+-#include<iostream>
+-#include<algorithm>
+-#include<fstream>
+-#include<chrono>
+-#include<vector>
++#include <iostream>
++#include <algorithm>
++#include <fstream>
++#include <chrono>
++#include <vector>
+ 
+ #include "rclcpp/rclcpp.hpp"
+ #include "sensor_msgs/msg/image.hpp"
+@@ -27,8 +27,8 @@
+ 
+ #include <cv_bridge/cv_bridge.h>
+ 
+-#include"System.h"
+-#include"Frame.h"
++#include "System.h"
++#include "Frame.h"
+ #include "Map.h"
+ #include "Tracking.h"
+ 

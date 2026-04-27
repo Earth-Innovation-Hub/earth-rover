@@ -1,0 +1,67 @@
+# Earth Rover -- workspace manifest for vcstool.
+#
+# Pinned to the exact commit SHAs running on `santacruz` as of 2026-04-26.
+# Bring up a fresh ROS 2 Humble workspace with:
+#
+#   mkdir -p ~/ros2_ws/src && cd ~/ros2_ws/src
+#   ln -sf ~/earth-rover .
+#   vcs import < ~/earth-rover/earth-rover.repos
+#   cd ~/ros2_ws && colcon build --symlink-install
+#
+# (Or just run `~/earth-rover/scripts/setup_workspace.sh`.)
+#
+# Every entry pins a SHA, not a branch, so the build is reproducible.
+# Bump the SHAs deliberately when you want to take an upstream update.
+#
+# Notes:
+#   - First-party code (`deepgis_vehicles`, `rtlsdr_ros2`, `spectrometery_ros2`)
+#     lives inside this repo (`./` and `./packages/`).  It is NOT in this file.
+#   - First-party forks (`deepgis_vision`, `metavision_driver`) live as git
+#     submodules under `./external/`.  They are NOT in this file either.
+#   - `orbslam3_ros2` is here (not a submodule) because it pulls a ~1 GB
+#     fork of ORB_SLAM3 and we don't want it cloned on every checkout.
+#   - Local fixes on top of the pinned SHAs are stored in
+#     `external/patches/`.  See `external/patches/README.md` for how/when
+#     they get applied.
+
+repositories:
+
+  # ---- PX4 / MAVROS bridge stack -----------------------------------------
+  px4_msgs:
+    type: git
+    url: https://github.com/PX4/px4_msgs.git
+    version: 189be58ddb7b6e89b5c0d53d88fb0717b80e8415
+  px4_ros_com:
+    type: git
+    url: https://github.com/PX4/px4_ros_com.git
+    version: 5e46ae598447a5a3f59aa5ecbf3422dfe12261a6
+
+  # ---- Camera drivers -----------------------------------------------------
+  realsense-ros:
+    type: git
+    url: https://github.com/IntelRealSense/realsense-ros
+    version: 2a65533ee7431bdc05fe5744798efc7f5713f866
+  flir_camera_driver:
+    type: git
+    url: https://github.com/ros-drivers/flir_camera_driver.git
+    version: cff3c6b1d8c2046bb00e57a6798d979ad1ce3cb9
+  event_camera_renderer:
+    type: git
+    url: https://github.com/ros-event-camera/event_camera_renderer.git
+    version: bb11776fb49493a25d83983694ea73b440e2c78e
+
+  # ---- Vision / streaming -------------------------------------------------
+  vision_opencv:
+    type: git
+    url: https://github.com/ros-perception/vision_opencv
+    version: 066793a23e5d06d76c78ca3d69824a501c3554fd
+  web_video_server:
+    type: git
+    url: https://github.com/RobotWebTools/web_video_server
+    version: c23b9078b614abdde9270ddd5d9f13c1fc4ad172
+
+  # ---- ORB-SLAM3 bridge (1 GB; first-party fork; pulls vendored ORB_SLAM3)
+  orbslam3_ros2:
+    type: git
+    url: https://github.com/darknight-007/orbslam3_ros2.git
+    version: eb2534c99c7b97cf369f16a55afbae821a44bba9

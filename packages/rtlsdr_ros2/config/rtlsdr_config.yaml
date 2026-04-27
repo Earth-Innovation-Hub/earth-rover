@@ -1,0 +1,46 @@
+# RTL-SDR ROS2 Configuration File
+
+rtlsdr_reader:
+  ros__parameters:
+    # Device configuration
+    device_index: 0                    # RTL-SDR device index (0 for first device)
+    
+    # RF configuration
+    center_frequency: 100.0e6          # Center frequency in Hz (100 MHz)
+    sample_rate: 2.048e6               # Sample rate in Hz (2.048 MSps)
+    gain: 'auto'                       # Gain: 'auto' or value in dB (e.g., 20.0)
+    
+    # Sampling configuration
+    num_samples: 1024                  # Number of samples per read
+    publish_rate: 10.0                 # Publishing rate in Hz
+    
+    # Publishing options
+    publish_raw_iq: true               # Publish raw IQ samples
+    publish_spectrum: true             # Publish spectrum data
+    
+    # Spectrum analysis
+    fft_size: 1024                     # FFT size for spectrum analysis
+
+# Example configurations for common frequencies:
+
+# FM Radio (88-108 MHz)
+# center_frequency: 98.0e6
+
+# Air Traffic Control (118-137 MHz)
+# center_frequency: 127.5e6
+
+# Weather Satellites (137 MHz)
+# center_frequency: 137.5e6
+
+# GPS L1 (1575.42 MHz)
+# center_frequency: 1575.42e6
+
+# ADS-B Aircraft (1090 MHz)
+# center_frequency: 1090.0e6
+
+# ISM Band 433 MHz
+# center_frequency: 433.92e6
+
+# ISM Band 915 MHz
+# center_frequency: 915.0e6
+
