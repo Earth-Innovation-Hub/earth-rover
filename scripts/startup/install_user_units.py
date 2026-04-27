@@ -226,8 +226,10 @@ def main() -> int:
             )
 
     print(
-        "\nNext:\n"
-        "  systemctl --user enable --now er-mission.target\n"
+        "\nUnits are installed but NOT enabled.  Bring the stack up manually:\n"
+        "  make mission-up                          # whole graph\n"
+        "  make ui-up                               # just the web-frontend layer\n"
+        "  systemctl --user start er-<unit>.service # individual service\n"
         "  systemctl --user list-units 'er-*'\n"
         "  journalctl --user -u er-vcs -f\n"
     )

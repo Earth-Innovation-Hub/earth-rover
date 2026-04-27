@@ -36,6 +36,9 @@ WITH_ROS = bash -c 'set -e; \
         vcs-up vcs-down vcs-status \
         trike-up trike-down trike-status trike-minimal \
         units-install units-list units-tail \
+        mission-up mission-down mission-status mission-tail \
+        ui-up ui-down ui-status \
+        archive-now archive-status archive-tail archive-cancel \
         info
 
 help:
@@ -71,6 +74,17 @@ help:
 	@printf "  units-install      - install ~/.config/systemd/user/er-*.service units\n"
 	@printf "  units-list         - systemctl --user list-units 'er-*'\n"
 	@printf "  units-tail UNIT=x  - journalctl --user -u er-x -f\n"
+	@printf "\n"
+	@printf "Manual mission launch (NOTHING auto-starts at boot anymore):\n"
+	@printf "  mission-up         - start the whole er-mission.target graph\n"
+	@printf "  mission-down       - stop everything\n"
+	@printf "  mission-status     - one-line state for every er-* unit\n"
+	@printf "  mission-tail UNIT=x - journalctl --user -u er-x -f (alias of units-tail)\n"
+	@printf "  ui-up / ui-down    - just the web-frontend layer\n"
+	@printf "                       (er-vcs + er-rosbridge + er-web-video + er-kiosk)\n"
+	@printf "  archive-now        - one-shot SSD->NAS rsync (no daily timer)\n"
+	@printf "  archive-cancel     - stop a running archive\n"
+	@printf "  archive-tail       - tail the archive log\n"
 	@printf "\n"
 	@printf "  info               - print resolved variables\n"
 
@@ -196,3 +210,73 @@ ifndef UNIT
 	$(error UNIT is unset.  Use:  make units-tail UNIT=mavros)
 endif
 	journalctl --user -u er-$(UNIT) -f
+
+# ---- Manual mission launch ---------------------------------------------------
+# Auto-start at boot was deliberately removed.  These targets are the supported
+# way to bring the rover up; each invocation is an explicit operator decision.
+
+# UI layer the operator usually wants up first so the Django mission console
+# at http://localhost:8000/mission/ can act as a launch panel for everything
+# else.  Order matters: rosbridge + web_video before vcs (Django depends on
+# both), kiosk last (waits for vcs).
+UI_UNITS = er-rosbridge.service er-web-video.service er-vcs.service er-kiosk.service
+
+mission-up:
+	systemctl --user start er-mission.target
+	@echo
+	@echo "Mission target started.  Watch services come up with:"
+	@echo "    make mission-status"
+
+mission-down:
+	systemctl --user stop er-mission.target
+	@sleep 2
+	systemctl --user reset-failed 'er-*' 2>/dev/null || true
+	@echo "Mission target stopped."
+
+mission-status:
+	@systemctl --user list-units 'er-*' --all --no-legend \
+	    | awk '{ printf "  %-32s %-8s %-12s %s\n", $$1, $$3, $$4, substr($$0, index($$0,$$5)) }'
+
+mission-tail:
+ifndef UNIT
+	$(error UNIT is unset.  Use:  make mission-tail UNIT=mavros)
+endif
+	journalctl --user -u er-$(UNIT) -f
+
+ui-up:
+	systemctl --user start $(UI_UNITS)
+	@echo
+	@echo "Web-frontend layer started:"
+	@echo "  Django dashboard : http://localhost:8000/"
+	@echo "  Mission console  : http://localhost:8000/mission/"
+	@echo "  rosbridge        : ws://localhost:9090/"
+	@echo "  web_video        : http://localhost:8080/"
+
+ui-down:
+	systemctl --user stop $(UI_UNITS)
+	@echo "Web-frontend layer stopped."
+
+ui-status:
+	@for u in $(UI_UNITS); do \
+	    state=$$(systemctl --user is-active $$u); \
+	    printf "  %-28s %s\n" "$$u" "$$state"; \
+	done
+
+# ---- One-shot SSD->NAS archive rsync ----------------------------------------
+# The .timer that used to fire this on boot+5min and daily 03:00 was disabled.
+# Run it explicitly when you want to archive yesterday-and-earlier files.
+
+archive-now:
+	systemctl --user start --no-block er-rsync-archive.service
+	@echo "Archive started in the background.  Tail with:  make archive-tail"
+
+archive-status:
+	@systemctl --user status --no-pager er-rsync-archive.service | head -15 || true
+
+archive-tail:
+	tail -F $(HOME)/ssd-xtreme-transfer/rsync-archive.log
+
+archive-cancel:
+	systemctl --user stop er-rsync-archive.service
+	systemctl --user reset-failed er-rsync-archive.service 2>/dev/null || true
+	@echo "Archive cancelled."

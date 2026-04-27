@@ -1,11 +1,17 @@
 # Earth Rover Startup Scripts
 
+> **Nothing auto-starts at boot.** Auto-enable was deliberately removed so
+> every launch is an explicit operator decision (due-diligence per launch).
+> The systemd unit files are still installed; they just sit idle until you
+> ask for them via `make mission-up`, `systemctl --user start …`, or the
+> Django mission console.
+
 Two startup paths are supported:
 
 1. **Mission target (recommended)** — declarative tier-based dependency graph
    in `mission.yaml`, compiled into a graph of `systemd --user` units that
    bring the stack up in topological order. Live status is exposed at
-   `http://localhost:8000/mission/`.
+   `http://localhost:8000/mission/` once the UI layer is up.
 2. **Legacy monolithic script** — `run_trike_stack.sh` launches every service
    in sequence with `nohup`. Still here for ad-hoc / interactive use.
 
@@ -110,43 +116,58 @@ scripts/startup/
 scripts/logs/                    # Log files (created automatically)
 ```
 
-## Quick Start (Mission target)
+## Quick Start (Mission target — manual launch)
 
 ```bash
+# 1. Generate ~/.config/systemd/user/er-*.service from mission.yaml.
+#    This installs the unit files but does NOT enable or start anything.
 cd /home/jdas/earth-rover/scripts/startup
+./install_user_units.sh
 
-# 1. Generate ~/.config/systemd/user/er-*.service from mission.yaml,
-#    and symlink the kiosk autostart .desktop into ~/.config/autostart/
-./install_user_units.sh --enable-kiosk
-
-# 2. Enable the whole stack at login (and start it now).
-systemctl --user enable --now er-mission.target
-
-# 3. Watch services come up.
-systemctl --user list-units 'er-*' --all
-journalctl --user -u er-vcs -f
-
-# 4. Open the live mission page (or rely on the kiosk).
+# 2. Bring up just the web-frontend layer first so the mission console is
+#    available as a launch panel (rosbridge + web_video + Django + kiosk):
+make -C /home/jdas/earth-rover ui-up
 xdg-open http://localhost:8000/mission/
+
+# 3. From the console (or the CLI) start whichever services you want, e.g.:
+systemctl --user start er-mavros.service
+systemctl --user start er-grasshopper.service
+systemctl --user start er-rtl-adsb.service er-adsb-state.service
+
+# 4. Bring everything up at once when ready:
+make -C /home/jdas/earth-rover mission-up
+make -C /home/jdas/earth-rover mission-status
+
+# 5. Bring everything back down:
+make -C /home/jdas/earth-rover mission-down
 ```
 
-To survive logout (headless rover):
+To survive logout (headless rover) so manually-started services keep running:
 
 ```bash
 loginctl enable-linger $USER
 ```
 
-To **bring just one tier up** (e.g. only Tier 4 + its required deps):
+### One-shot SSD → NAS archive rsync
+
+The boot+5min / daily-03:00 timer was disabled. Trigger archives explicitly:
 
 ```bash
-systemctl --user start er-vcs.service   # systemd pulls in rosbridge + web-video
+make -C /home/jdas/earth-rover archive-now      # fire and forget
+make -C /home/jdas/earth-rover archive-tail     # follow the log
+make -C /home/jdas/earth-rover archive-cancel   # stop a running archive
 ```
 
-To **disable** the kiosk autostart later:
+### Re-enable auto-start (only if you really want the old behavior back)
 
 ```bash
-rm ~/.config/autostart/earth-rover-kiosk.desktop
+systemctl --user enable --now er-mission.target            # whole graph at login
+systemctl --user enable      er-kiosk.service              # kiosk on graphical login
+systemctl --user enable --now er-rsync-archive.timer       # boot+5min and daily 03:00
 ```
+
+You probably don't want the third one — only re-enable the timer if you
+trust the SSD has enough free space at every boot.
 
 ## Legacy Quick Start
 

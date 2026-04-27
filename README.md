@@ -135,9 +135,15 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 
 The rover's bring-up is expressed declaratively in
 [`scripts/startup/mission.yaml`](scripts/startup/mission.yaml) and compiled to
-a graph of `systemd --user` services that boot the stack in topological tier
-order. Every service in the manifest becomes one `er-<id>.service` unit; the
-aggregating `er-mission.target` pulls them all up in the correct sequence.
+a graph of `systemd --user` services that bring the stack up in topological
+tier order. Every service in the manifest becomes one `er-<id>.service` unit;
+the aggregating `er-mission.target` pulls them all up in the correct sequence.
+
+> **Nothing in this graph auto-starts at boot or login.** Auto-enable was
+> deliberately removed so every launch is an explicit operator decision
+> (due-diligence per launch). Bring the stack up manually via `make
+> mission-up`, individual `systemctl --user start er-<unit>.service`
+> commands, or the Django mission console.
 
 ```mermaid
 flowchart TB
@@ -202,15 +208,31 @@ stopped state for every unit, refreshed every 3 s) by the VCS at
 **[http://localhost:8000/mission/](http://localhost:8000/mission/)**, sourced
 from `systemctl --user show er-*.service`.
 
-To install the units and have the rover boot straight into a fullscreen
-Firefox kiosk pointed at the live mission page:
+Install the unit files (no auto-enable; the install script only writes
+`~/.config/systemd/user/er-*.service`):
 
 ```bash
 cd scripts/startup
-./install_user_units.sh --enable-kiosk
-systemctl --user enable --now er-mission.target
-loginctl enable-linger $USER     # keep services running through logout
+./install_user_units.sh
+loginctl enable-linger $USER     # keep manually-started services alive across logout
 ```
+
+Then bring the stack up by hand. The typical flow is to start the web
+frontend first so the Django mission console at `http://localhost:8000/mission/`
+can act as a per-service launch panel:
+
+```bash
+make ui-up           # rosbridge + web_video + vcs + kiosk
+# decide what to run today, then either:
+systemctl --user start er-mavros.service          # one at a time, or
+make mission-up                                   # the whole graph
+
+make mission-status  # one-line state for every er-* unit
+make mission-down    # everything off
+```
+
+If you ever want the boot-time / graphical-login auto-start back, see
+[`scripts/startup/README.md`](scripts/startup/README.md#re-enable-auto-start-only-if-you-really-want-the-old-behavior-back).
 
 See [`scripts/startup/README.md`](scripts/startup/README.md) for the full
 walkthrough, customization, and troubleshooting.

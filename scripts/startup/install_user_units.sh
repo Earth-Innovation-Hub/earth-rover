@@ -5,12 +5,16 @@
 # plus an aggregating er-mission.target that pulls them all up in dependency
 # order via After= / Wants= / Requires=.
 #
-# After install:
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now er-mission.target
-#   systemctl --user list-units 'er-*'
+# This script ONLY generates and installs the unit files; it does NOT enable
+# anything to auto-start at boot/login.  Every launch is operator-driven.
+# Use the helpers in the top-level Makefile (or `systemctl --user start ...`
+# directly) to bring the stack up:
 #
-# To survive logout:
+#   make mission-up      # the whole graph
+#   make ui-up           # just the web-frontend layer (vcs + rosbridge + ...)
+#   make archive-now     # one-shot SSD->NAS rsync
+#
+# To survive logout (headless rover):
 #   loginctl enable-linger $USER
 
 set -euo pipefail
@@ -21,22 +25,22 @@ AUTOSTART_DIR="${HOME}/.config/autostart"
 MISSION_YAML="${MISSION_YAML:-${EARTH_ROVER_HOME}/scripts/startup/mission.yaml}"
 LEGACY_KIOSK_AUTOSTART="${AUTOSTART_DIR}/earth-rover-kiosk.desktop"
 
-ENABLE_MISSION=0
 PASSTHROUGH=()
 
 usage() {
     cat <<EOF
 Usage: install_user_units.sh [options]
 
-Generates systemd --user units from mission.yaml.
+Generates ~/.config/systemd/user/er-*.service from mission.yaml and reloads
+the user systemd daemon.  Nothing auto-starts -- every service is launched
+manually by the operator (CLI, Makefile, or the Django mission console).
 
-The kiosk service (er-kiosk.service, marked needs_display in mission.yaml) is
-bound to graphical-session.target, so it fires automatically once GNOME (or
-any logind graphical session) comes up.  We deliberately do NOT install an
-XDG autostart .desktop entry to avoid double-firing Firefox.
+The kiosk service is bound to graphical-session.target so that IF the
+operator chooses to enable it (\`systemctl --user enable er-kiosk.service\`)
+it fires on graphical login without double-firing through XDG autostart.
+By default it is NOT enabled.
 
 Options:
-  --enable-mission    systemctl --user enable --now er-mission.target after install
   --dry-run           show generated units without writing
   -h, --help          this help
 EOF
@@ -44,7 +48,12 @@ EOF
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --enable-mission) ENABLE_MISSION=1 ;;
+        --enable-mission)
+            echo "[install_user_units] --enable-mission has been removed." >&2
+            echo "    Auto-enable was deliberately dropped: every launch is manual." >&2
+            echo "    Use:  make mission-up   (or: systemctl --user start er-mission.target)" >&2
+            exit 2
+            ;;
         --dry-run)        PASSTHROUGH+=("--dry-run") ;;
         -h|--help)        usage; exit 0 ;;
         *)                PASSTHROUGH+=("$1") ;;
@@ -82,19 +91,32 @@ if [ -L "$LEGACY_KIOSK_AUTOSTART" ] || [ -f "$LEGACY_KIOSK_AUTOSTART" ]; then
     echo "    (kiosk now fires via er-kiosk.service bound to graphical-session.target)"
 fi
 
-# ---- enable the mission target -----------------------------------------------
-if [ "$ENABLE_MISSION" -eq 1 ]; then
-    systemctl --user enable --now er-mission.target
-    systemctl --user enable er-kiosk.service || true
-    systemctl --user enable --now er-rsync-archive.timer || true
-    echo "[install_user_units] er-mission.target enabled and started."
-    echo "[install_user_units] er-kiosk.service enabled (will fire on graphical login)."
-    echo "[install_user_units] er-rsync-archive.timer enabled (boot+5min and daily 03:00)."
-    systemctl --user list-units 'er-*' --all | head -25
-else
-    echo
-    echo "[install_user_units] To enable the full mission stack at login:"
-    echo "    systemctl --user enable --now er-mission.target"
-    echo "    systemctl --user enable er-kiosk.service          # fires on graphical login"
-    echo "    systemctl --user enable --now er-rsync-archive.timer  # SSD->NAS archive"
-fi
+# ---- done -- everything is manual --------------------------------------------
+cat <<EOF
+
+[install_user_units] Done.  No services were enabled or started.
+
+To bring the mission stack up manually (preferred):
+    make -C "${EARTH_ROVER_HOME}" mission-up
+    make -C "${EARTH_ROVER_HOME}" mission-status
+    make -C "${EARTH_ROVER_HOME}" mission-down
+
+To bring up just the web-frontend layer (so the Django console can act as
+a launch panel for individual services):
+    make -C "${EARTH_ROVER_HOME}" ui-up
+
+One-shot SSD->NAS archive rsync (no auto-timer):
+    make -C "${EARTH_ROVER_HOME}" archive-now
+
+Or talk to systemd directly:
+    systemctl --user list-units 'er-*' --all
+    systemctl --user start  er-mavros.service
+    systemctl --user stop   er-mavros.service
+    journalctl --user -u    er-mavros -f
+
+If you ever want the old auto-on-boot behavior back (NOT recommended --
+re-enable per service so you keep due-diligence per launch):
+    systemctl --user enable --now er-mission.target            # whole graph
+    systemctl --user enable      er-kiosk.service              # graphical login
+    systemctl --user enable --now er-rsync-archive.timer       # daily archive
+EOF
