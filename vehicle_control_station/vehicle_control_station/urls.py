@@ -24,14 +24,17 @@ from .views import (
     recording_stop,
     ros_nodes,
 )
+from .mission_views import mission_page, mission_status
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', TemplateView.as_view(template_name='home.html'), name='home'),
     path('ros-image/', ros_image_grid, name='ros_image_grid'),
+    path('mission/', mission_page, name='mission_page'),
     path('api/system-info/', system_info, name='system_info'),
     path('api/recording/status/', recording_status, name='recording_status'),
     path('api/recording/start/', recording_start, name='recording_start'),
     path('api/recording/stop/', recording_stop, name='recording_stop'),
     path('api/ros-nodes/', ros_nodes, name='ros_nodes'),
+    path('api/mission/', mission_status, name='mission_status'),
 ]

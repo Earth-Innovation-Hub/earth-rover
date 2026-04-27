@@ -1,0 +1,46 @@
+# Earth Rover  --  VCS Triplet tmuxp profile
+#
+# Requires: tmux + tmuxp.   Install once with:
+#     sudo apt install -y tmux
+#     pipx install tmuxp     # or: python3 -m pip install --user tmuxp
+#
+# Usage:
+#     tmuxp load -y /home/jdas/earth-rover/scripts/startup/vcs.tmuxp.yaml
+#
+# Detach with Ctrl+b d.   Re-attach with `tmux attach -t vcs`.
+# Kill with `tmux kill-session -t vcs`  (or `make vcs-down`).
+
+session_name: vcs
+start_directory: /home/jdas/earth-rover
+environment:
+  ROS_DISTRO: humble
+  ROS2_WS: /home/jdas/ros2_ws
+
+shell_command_before:
+  - 'source /opt/ros/${ROS_DISTRO}/setup.bash'
+  - '[ -f ${ROS2_WS}/install/setup.bash ] && source ${ROS2_WS}/install/setup.bash'
+
+windows:
+  - window_name: rosbridge
+    panes:
+      - shell_command:
+          - 'echo "[rosbridge_server] launching websocket on :9090"'
+          - 'ros2 launch rosbridge_server rosbridge_websocket_launch.xml'
+
+  - window_name: web_video
+    panes:
+      - shell_command:
+          - 'echo "[web_video_server] HTTP MJPEG on :8080"'
+          - 'ros2 run web_video_server web_video_server'
+
+  - window_name: vcs_django
+    start_directory: /home/jdas/earth-rover/vehicle_control_station
+    panes:
+      - shell_command:
+          - 'echo "[vehicle_control_station] Django runserver on :8000"'
+          - 'python3 manage.py runserver 0.0.0.0:8000'
+
+  - window_name: monitor
+    panes:
+      - shell_command:
+          - 'watch -n 2 "ros2 topic list | head -40"'

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Earth Rover -- Mission Launch Sequence</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --blue: #58a6ff;
+    --grey: #6e7681;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #1c2230 0%, var(--bg) 100%);
+  }
+  header h1 {
+    margin: 0; font-size: 1.4em; font-weight: 600;
+  }
+  header .subtitle {
+    color: var(--muted); font-size: 0.85em; margin-top: 4px;
+  }
+  .target-pill {
+    padding: 6px 14px; border-radius: 999px; font-weight: 600;
+    font-size: 0.9em; border: 1px solid var(--border);
+  }
+  .target-pill.active   { color: var(--green);  border-color: var(--green);  background: rgba(63,185,80,.08); }
+  .target-pill.activating { color: var(--yellow); border-color: var(--yellow); background: rgba(210,153,34,.08); }
+  .target-pill.failed   { color: var(--red);    border-color: var(--red);    background: rgba(248,81,73,.08); }
+  .target-pill.inactive { color: var(--muted);  border-color: var(--border); }
+
+  main { padding: 24px; max-width: 1600px; margin: 0 auto; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; color: var(--muted); font-size: 0.85em; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }
+
+  .tier {
+    margin-bottom: 28px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    overflow: hidden;
+  }
+  .tier-header {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 12px 16px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--border);
+  }
+  .tier-num {
+    font-size: 0.75em; font-weight: 700;
+    color: var(--blue);
+    background: rgba(88,166,255,.1);
+    padding: 3px 10px; border-radius: 4px; letter-spacing: 0.5px;
+  }
+  .tier-label { font-weight: 600; }
+  .tier-summary { color: var(--muted); font-size: 0.85em; margin-left: auto; }
+
+  .services {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+    padding: 16px;
+  }
+  .svc {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    background: var(--panel-2);
+    position: relative;
+    transition: border-color .15s, background .15s;
+  }
+  .svc.optional { opacity: 0.85; }
+  .svc-head {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px;
+  }
+  .svc-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  .svc-dot.running { color: var(--green); background: var(--green); animation: pulse 1.6s infinite; }
+  .svc-dot.ok      { color: var(--green); background: var(--green); }
+  .svc-dot.starting{ color: var(--yellow); background: var(--yellow); animation: pulse 1s infinite; }
+  .svc-dot.failed  { color: var(--red); background: var(--red); }
+  .svc-dot.stopped { color: var(--grey); background: var(--grey); }
+  .svc-dot.unknown { color: var(--muted); background: var(--muted); }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0    currentColor; }
+    70%  { box-shadow: 0 0 0 8px  rgba(0,0,0,0); }
+    100% { box-shadow: 0 0 0 0    rgba(0,0,0,0); }
+  }
+  .svc-name { font-weight: 600; }
+  .svc-id { color: var(--muted); font-size: 0.75em; font-family: ui-monospace, "SF Mono", Menlo, monospace; margin-left: auto; }
+  .svc-desc { color: var(--muted); font-size: 0.85em; margin: 4px 0 8px; line-height: 1.4; }
+  .svc-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.75em; color: var(--muted); }
+  .svc-meta .pill {
+    padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
+    background: rgba(0,0,0,.2);
+  }
+  .svc-deps {
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border);
+    font-size: 0.75em; color: var(--muted);
+  }
+  .svc-deps strong { color: var(--text); font-weight: 500; }
+  .svc-deps .dep   { color: var(--blue); }
+  .svc-deps .dep.req { color: var(--yellow); }
+
+  .updated {
+    text-align: right; color: var(--muted); font-size: 0.75em; margin-top: 12px;
+  }
+
+  /* When kiosk navigates here, hide the scrollbar for a cleaner look */
+  body::-webkit-scrollbar { width: 8px; }
+  body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1 id="mission-name">Earth Rover -- Mission Launch Sequence</h1>
+      <div class="subtitle" id="mission-desc">Loading mission manifest...</div>
+    </div>
+    <div class="target-pill inactive" id="target-pill">target: -</div>
+  </header>
+
+  <main>
+    <div class="legend">
+      <span><span class="dot" style="background: var(--green)"></span>running</span>
+      <span><span class="dot" style="background: var(--yellow)"></span>starting</span>
+      <span><span class="dot" style="background: var(--red)"></span>failed</span>
+      <span><span class="dot" style="background: var(--grey)"></span>stopped</span>
+      <span><span class="dot" style="background: var(--muted)"></span>unknown</span>
+      <span style="margin-left:auto">
+        <a href="/" style="color: var(--blue); text-decoration: none;">&larr; back to dashboard</a>
+      </span>
+    </div>
+
+    <div id="tiers"></div>
+
+    <div class="updated" id="updated">--</div>
+  </main>
+
+<script>
+const STATE_LABEL = {
+  running: "running",
+  ok: "ok",
+  starting: "starting",
+  failed: "failed",
+  stopped: "stopped",
+  unknown: "unknown",
+};
+
+const TIER_DESC = {
+  0: "Hardware presence checks - oneshot pre-conditions for the rest of the stack.",
+  1: "Sensor and I/O drivers - root-cause publishers for every topic.",
+  2: "State estimators and plotters - consume Tier-1 topics, produce derived state.",
+  3: "Web bridge - rosbridge_websocket and web_video_server.",
+  4: "Application - the Django Vehicle Control Station.",
+  5: "User interface - Firefox kiosk pointed at the VCS.",
+};
+
+function escapeHTML(s) {
+  return (s || "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function renderService(svc) {
+  const cls = ["svc"];
+  if (svc.optional) cls.push("optional");
+
+  let depsHtml = "";
+  if ((svc.after && svc.after.length) || (svc.requires && svc.requires.length)) {
+    const reqSet = new Set(svc.requires || []);
+    const all = new Set([...(svc.after || []), ...(svc.requires || [])]);
+    const items = Array.from(all).map(d => {
+      const c = reqSet.has(d) ? "dep req" : "dep";
+      const label = reqSet.has(d) ? `${d}*` : d;
+      return `<span class="${c}">${escapeHTML(label)}</span>`;
+    }).join(", ");
+    depsHtml = `<div class="svc-deps"><strong>after:</strong> ${items}` +
+      (svc.requires && svc.requires.length ? ` <em>(* required)</em>` : "") +
+      `</div>`;
+  }
+
+  let metaPills = [];
+  if (svc.optional) metaPills.push(`<span class="pill">optional</span>`);
+  if (svc.type === "oneshot") metaPills.push(`<span class="pill">oneshot</span>`);
+  if (svc.health_topic) metaPills.push(`<span class="pill">topic: ${escapeHTML(svc.health_topic)}</span>`);
+  if (svc.pid && svc.pid !== "0") metaPills.push(`<span class="pill">PID ${escapeHTML(svc.pid)}</span>`);
+
+  return `
+    <div class="${cls.join(" ")}" data-id="${escapeHTML(svc.id)}">
+      <div class="svc-head">
+        <span class="svc-dot ${svc.ui_state}" title="${escapeHTML(STATE_LABEL[svc.ui_state] || svc.ui_state)}"></span>
+        <span class="svc-name">${escapeHTML(svc.name)}</span>
+        <span class="svc-id">${escapeHTML(svc.id)}</span>
+      </div>
+      <div class="svc-desc">${escapeHTML(svc.description || "")}</div>
+      <div class="svc-meta">${metaPills.join("")}</div>
+      ${depsHtml}
+    </div>
+  `;
+}
+
+function renderTier(t) {
+  const states = t.services.reduce((acc, s) => {
+    acc[s.ui_state] = (acc[s.ui_state] || 0) + 1;
+    return acc;
+  }, {});
+  const total = t.services.length;
+  const up = (states.running || 0) + (states.ok || 0);
+
+  return `
+    <div class="tier">
+      <div class="tier-header">
+        <span class="tier-num">TIER ${t.tier}</span>
+        <span class="tier-label">${escapeHTML(t.label)}</span>
+        <span class="tier-summary">${up}/${total} up &middot; ${escapeHTML(TIER_DESC[t.tier] || "")}</span>
+      </div>
+      <div class="services">${t.services.map(renderService).join("")}</div>
+    </div>
+  `;
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("/api/mission/", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (data.status !== "ok") throw new Error(data.message || "API error");
+
+    document.getElementById("mission-name").textContent = data.mission.name;
+    document.getElementById("mission-desc").textContent = data.mission.description || "";
+    const pill = document.getElementById("target-pill");
+    pill.textContent = `target: ${data.mission.target_state}`;
+    pill.className = "target-pill " + (data.mission.target_state === "active" ? "active"
+                                     : data.mission.target_state === "activating" ? "activating"
+                                     : data.mission.target_state === "failed" ? "failed"
+                                     : "inactive");
+
+    document.getElementById("tiers").innerHTML = data.tiers.map(renderTier).join("");
+    document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (err) {
+    document.getElementById("updated").textContent = "ERR: " + err.message;
+  }
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

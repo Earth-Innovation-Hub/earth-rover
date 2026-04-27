@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Earth Rover Kiosk
+Comment=Auto-launches the VCS mission page in fullscreen Firefox on login
+Exec=/home/jdas/earth-rover/scripts/startup/firefox_kiosk.sh http://localhost:8000/mission/
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Phase=Applications
+X-GNOME-Autostart-Delay=8
+StartupNotify=false

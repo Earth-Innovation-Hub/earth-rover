@@ -1,26 +1,154 @@
 # Earth Rover Startup Scripts
 
-Consolidated ROS 2 startup scripts for the Earth Rover platform.
+Two startup paths are supported:
+
+1. **Mission target (recommended)** — declarative tier-based dependency graph
+   in `mission.yaml`, compiled into a graph of `systemd --user` units that
+   bring the stack up in topological order. Live status is exposed at
+   `http://localhost:8000/mission/`.
+2. **Legacy monolithic script** — `run_trike_stack.sh` launches every service
+   in sequence with `nohup`. Still here for ad-hoc / interactive use.
+
+## Mission Launch Dependency Chart
+
+```mermaid
+flowchart TB
+    classDef tier0 fill:#1f2937,stroke:#374151,color:#9ca3af
+    classDef tier1 fill:#1e3a8a,stroke:#1d4ed8,color:#dbeafe
+    classDef tier2 fill:#5b21b6,stroke:#7c3aed,color:#ede9fe
+    classDef tier3 fill:#065f46,stroke:#10b981,color:#d1fae5
+    classDef tier4 fill:#92400e,stroke:#d97706,color:#fef3c7
+    classDef tier5 fill:#9d174d,stroke:#db2777,color:#fce7f3
+
+    subgraph T0["Tier 0 — Hardware Detection"]
+        hw_pixhawk[hw-pixhawk]:::tier0
+        hw_rtlsdr[hw-rtlsdr]:::tier0
+        hw_cameras[hw-cameras]:::tier0
+    end
+
+    subgraph T1["Tier 1 — Sensor / I-O Drivers"]
+        mavros[mavros]:::tier1
+        rtl_adsb[rtl-adsb]:::tier1
+        grasshopper[grasshopper]:::tier1
+        realsense[realsense]:::tier1
+        metavision[metavision]:::tier1
+        velodyne[velodyne]:::tier1
+        spectrometer[spectrometer]:::tier1
+        serial_pub[serial-pub]:::tier1
+    end
+
+    subgraph T2["Tier 2 — State Estimators"]
+        adsb_state[adsb-state]:::tier2
+        adsb_plot_2d[adsb-plot-2d]:::tier2
+        adsb_glide[adsb-glide]:::tier2
+        landmark_vo[landmark-vo-fisheye]:::tier2
+        spec_plot[spectrometer-plot]:::tier2
+        deepgis_gps[deepgis-gps]:::tier2
+    end
+
+    subgraph T3["Tier 3 — Web Bridge"]
+        rosbridge[rosbridge :9090]:::tier3
+        web_video[web-video :8080]:::tier3
+    end
+
+    subgraph T4["Tier 4 — Application"]
+        vcs["vcs (Django :8000)"]:::tier4
+    end
+
+    subgraph T5["Tier 5 — User Interface"]
+        kiosk["kiosk (Firefox)"]:::tier5
+    end
+
+    hw_pixhawk --> mavros
+    hw_rtlsdr  --> rtl_adsb
+    hw_cameras --> grasshopper
+    hw_cameras --> realsense
+    hw_cameras --> metavision
+
+    rtl_adsb   --> adsb_state
+    mavros     --> adsb_state
+    adsb_state --> adsb_plot_2d
+    adsb_state --> adsb_glide
+    realsense  --> landmark_vo
+    spectrometer --> spec_plot
+    mavros     --> deepgis_gps
+
+    mavros     --> rosbridge
+
+    rosbridge  --> vcs
+    web_video  --> vcs
+
+    vcs        --> kiosk
+```
+
+Edit `mission.yaml` to add/remove/reorder services; then re-run
+`install_user_units.sh` to regenerate the unit graph.
 
 ## Directory Structure
 
 ```
 scripts/startup/
-├── install.sh              # Installation script (run this first)
-├── ros_startup.sh          # Main startup router
-├── run_trike_stack.sh      # Full trike stack launcher
-├── run_minimal_stack.sh    # Minimal stack launcher
-├── stop_trike_stack.sh     # Graceful shutdown script
-├── ros-trike.service       # Systemd user service file
-├── ros-trike.desktop       # Desktop autostart file
-└── README.md               # This file
+├── mission.yaml                 # Declarative mission topology (source of truth)
+├── install_user_units.sh        # Generate ~/.config/systemd/user/er-*.service
+├── install_user_units.py        # Python helper that emits unit files
+├── earth-rover-kiosk.desktop    # XDG autostart entry for the kiosk
+├── firefox_kiosk.sh             # Wait-for-VCS + launch Firefox in --kiosk
+├── vcs_up.sh                    # Bring up rosbridge + web_video + Django (no systemd)
+├── vcs_down.sh                  # Stop the VCS triplet
+├── vcs_status.sh                # Show VCS triplet status
+├── vcs.tmuxp.yaml               # Optional: tmuxp session profile for the triplet
+├── install.sh                   # Legacy: install ros-trike.service
+├── ros_startup.sh               # Legacy startup router
+├── run_trike_stack.sh           # Legacy: nohup every service inline
+├── run_minimal_stack.sh         # Legacy minimal-stack launcher
+├── stop_trike_stack.sh          # Legacy graceful shutdown
+├── check_status.sh              # Legacy status check
+├── ros-trike.service            # Legacy systemd user unit (entire stack as one)
+├── ros-trike.desktop            # Legacy desktop autostart
+└── README.md                    # This file
 
-scripts/logs/               # Log files directory (created automatically)
+scripts/logs/                    # Log files (created automatically)
 ```
 
-## Quick Start
+## Quick Start (Mission target)
 
-### 1. Install Startup Scripts
+```bash
+cd /home/jdas/earth-rover/scripts/startup
+
+# 1. Generate ~/.config/systemd/user/er-*.service from mission.yaml,
+#    and symlink the kiosk autostart .desktop into ~/.config/autostart/
+./install_user_units.sh --enable-kiosk
+
+# 2. Enable the whole stack at login (and start it now).
+systemctl --user enable --now er-mission.target
+
+# 3. Watch services come up.
+systemctl --user list-units 'er-*' --all
+journalctl --user -u er-vcs -f
+
+# 4. Open the live mission page (or rely on the kiosk).
+xdg-open http://localhost:8000/mission/
+```
+
+To survive logout (headless rover):
+
+```bash
+loginctl enable-linger $USER
+```
+
+To **bring just one tier up** (e.g. only Tier 4 + its required deps):
+
+```bash
+systemctl --user start er-vcs.service   # systemd pulls in rosbridge + web-video
+```
+
+To **disable** the kiosk autostart later:
+
+```bash
+rm ~/.config/autostart/earth-rover-kiosk.desktop
+```
+
+## Legacy Quick Start
 
 ```bash
 cd /home/jdas/earth-rover/scripts/startup

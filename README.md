@@ -129,6 +129,91 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 | **`vehicle_control_station/`** | Django web app for real-time camera feeds, GPS/map, LiDAR, spectrometer, avionics gauges, and ROS recording. See [`vehicle_control_station/README.md`](vehicle_control_station/README.md). |
 | **`config/`** | YAML and RViz configurations: MAVROS, ADS-B state vectors, landmark VO plots, sensors (RealSense, Grasshopper IDs), DeepGIS telemetry. |
 | **`kernelcal/`** | Git submodule — [`darknight-007/kernelcal`](https://github.com/darknight-007/kernelcal): kernel-dynamics / Maximum-Caliber library (companion to the kernel dynamics paper series). Used for spectral analysis and adaptive sampling experiments tied to the rover's environmental monitoring stack. |
+| **`Makefile`** | Top-level developer shortcuts (build, source, launch deepgis_vehicles, bring the trike stack up/down, etc.). Run `make help`. |
+
+## Mission Launch Sequence
+
+The rover's bring-up is expressed declaratively in
+[`scripts/startup/mission.yaml`](scripts/startup/mission.yaml) and compiled to
+a graph of `systemd --user` services that boot the stack in topological tier
+order. Every service in the manifest becomes one `er-<id>.service` unit; the
+aggregating `er-mission.target` pulls them all up in the correct sequence.
+
+```mermaid
+flowchart TB
+    classDef tier0 fill:#1f2937,stroke:#374151,color:#9ca3af
+    classDef tier1 fill:#1e3a8a,stroke:#1d4ed8,color:#dbeafe
+    classDef tier2 fill:#5b21b6,stroke:#7c3aed,color:#ede9fe
+    classDef tier3 fill:#065f46,stroke:#10b981,color:#d1fae5
+    classDef tier4 fill:#92400e,stroke:#d97706,color:#fef3c7
+    classDef tier5 fill:#9d174d,stroke:#db2777,color:#fce7f3
+
+    subgraph T0["Tier 0 — Hardware Detection"]
+        hw_pixhawk[hw-pixhawk]:::tier0
+        hw_rtlsdr[hw-rtlsdr]:::tier0
+        hw_cameras[hw-cameras]:::tier0
+    end
+    subgraph T1["Tier 1 — Sensor / I-O Drivers"]
+        mavros[mavros]:::tier1
+        rtl_adsb[rtl-adsb]:::tier1
+        grasshopper[grasshopper]:::tier1
+        realsense[realsense]:::tier1
+        metavision[metavision]:::tier1
+        velodyne[velodyne]:::tier1
+        spectrometer[spectrometer]:::tier1
+    end
+    subgraph T2["Tier 2 — State Estimators"]
+        adsb_state[adsb-state]:::tier2
+        adsb_plot_2d[adsb-plot-2d]:::tier2
+        adsb_glide[adsb-glide]:::tier2
+        landmark_vo[landmark-vo-fisheye]:::tier2
+        deepgis_gps[deepgis-gps]:::tier2
+    end
+    subgraph T3["Tier 3 — Web Bridge"]
+        rosbridge[rosbridge :9090]:::tier3
+        web_video[web-video :8080]:::tier3
+    end
+    subgraph T4["Tier 4 — Application"]
+        vcs["vcs (Django :8000)"]:::tier4
+    end
+    subgraph T5["Tier 5 — User Interface"]
+        kiosk["kiosk (Firefox)"]:::tier5
+    end
+
+    hw_pixhawk --> mavros
+    hw_rtlsdr  --> rtl_adsb
+    hw_cameras --> grasshopper
+    hw_cameras --> realsense
+    hw_cameras --> metavision
+    rtl_adsb   --> adsb_state
+    mavros     --> adsb_state
+    adsb_state --> adsb_plot_2d
+    adsb_state --> adsb_glide
+    realsense  --> landmark_vo
+    mavros     --> deepgis_gps
+    mavros     --> rosbridge
+    rosbridge  --> vcs
+    web_video  --> vcs
+    vcs        --> kiosk
+```
+
+The same dependency graph is rendered live (with running / starting / failed /
+stopped state for every unit, refreshed every 3 s) by the VCS at
+**[http://localhost:8000/mission/](http://localhost:8000/mission/)**, sourced
+from `systemctl --user show er-*.service`.
+
+To install the units and have the rover boot straight into a fullscreen
+Firefox kiosk pointed at the live mission page:
+
+```bash
+cd scripts/startup
+./install_user_units.sh --enable-kiosk
+systemctl --user enable --now er-mission.target
+loginctl enable-linger $USER     # keep services running through logout
+```
+
+See [`scripts/startup/README.md`](scripts/startup/README.md) for the full
+walkthrough, customization, and troubleshooting.
 
 ## Documentation
 
@@ -138,7 +223,8 @@ Top-level docs tracked in this repo:
 - [`DEEPGIS_TELEMETRY_README.md`](DEEPGIS_TELEMETRY_README.md) — DeepGIS telemetry publisher (continuous geospatial uplink from the rover).
 - [`QUICK_START_TELEMETRY.md`](QUICK_START_TELEMETRY.md) — Quick-start guide for the DeepGIS telemetry stack.
 - [`API_COMPLIANCE_CHANGES.md`](API_COMPLIANCE_CHANGES.md) — DeepGIS API compliance change log.
-- [`scripts/startup/README.md`](scripts/startup/README.md) — Startup scripts and systemd units.
+- [`scripts/startup/README.md`](scripts/startup/README.md) — Mission launch dependency chart, systemd `--user` units, kiosk autostart.
+- [`scripts/startup/mission.yaml`](scripts/startup/mission.yaml) — Declarative mission topology consumed by both the unit installer and the live VCS mission page.
 - [`vehicle_control_station/README.md`](vehicle_control_station/README.md) — Web-based vehicle control station.
 
 ADS-B receiver-position estimation, landmark visual odometry plotting, and state-estimation analyses are kept as design notes under `docs/` (intentionally untracked in version control).
