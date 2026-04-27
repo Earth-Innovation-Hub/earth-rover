@@ -1,0 +1,3 @@
+[submodule "kernelcal"]
+	path = kernelcal
+	url = https://github.com/darknight-007/kernelcal.git
