@@ -5,8 +5,8 @@
   <version>0.1.0</version>
   <description>ROS2 package for connecting with Pixhawk PX4 using MAVROS2</description>
 
-  <maintainer email="user@example.com">User</maintainer>
-  <license>MIT</license>
+  <maintainer email="jnaneshwar.das@gmail.com">Jnaneshwar Das</maintainer>
+  <license>BSD-3-Clause</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

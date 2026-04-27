@@ -4,7 +4,8 @@ Affordable and Sustainable Mobility Autonomy for  4D Environmental Monitoring
 Jnaneshwar Das, ASU School of Earth and Space Exploration 
 
 
-## Abstract: 
+## Abstract
+
 For continuous ecological monitoring of urban or suburban environments, it is necessary to have affordable and versatile mobility autonomy. In this setting, we may wish to carry out 3D metric-semantic-topological mapping of trees, infrastructure, rocks, or other features of interest periodically, in intervals of hours to weeks. Autonomous Ground Vehicles (AGVs) from companies such as ClearPath Robotics cost about USD 25000, and need to be carried around for deployment, posing both cost and logistical challenges. 
 ![image](https://github.com/user-attachments/assets/07d53db6-031a-4a68-9338-75e33c5428a5)
 
@@ -22,12 +23,12 @@ This prototype is a 26" Schwinn adult tricycle frame, augmented with a front ele
 - **Compute**: 11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz, 32GB RAM, 512GB internal SSD, 2TB external SSD; Google Coral Tensor Processing Unit (TPU)
 - **Avionics**: Pixhawk 2.1 Flight Controller, PX4 open source autopilot software stack; Here+ GPS with RTK option
 - **Sensor suite**: PointGrey Grasshopper3 with narrow angle (left) and wide angle (right) lenses; MicaSense Altum 6 band multi-spectral camera triggered by flight controller, 100m LiDARLite LASER ranger; OceanOptics FLAME UV-VIS-NIR spectrometer; Intel RealSense T265 tracking camera
-- **Communication**: Ubiquiti networks 2.4GHz AirMax PicoStation access point; WiFi hotspot on onboard compute; 915 MHz telemetry radio to Pixhawk; 2.4GHz DSMX RC transmitter to Pixhawk. Optional SDR (HydraSDR, RTL-SDR) for ADS-B and spectrum monitoring—see [SDR_INTEGRATION.md](SDR_INTEGRATION.md). 
+- **Communication**: Ubiquiti networks 2.4GHz AirMax PicoStation access point; WiFi hotspot on onboard compute; 915 MHz telemetry radio to Pixhawk; 2.4GHz DSMX RC transmitter to Pixhawk. Optional SDR (HydraSDR, RTL-SDR) for ADS-B and spectrum monitoring — see [`scripts/hydra_sdr/`](scripts/hydra_sdr/) and [`scripts/rtl_sdr/`](scripts/rtl_sdr/), and the `sdr.launch.py` / `adsb.launch.py` / `rtl_sdr.launch.py` / `rtl_adsb.launch.py` launch files.
 
 ![image](https://github.com/user-attachments/assets/836d27e1-4022-4540-929a-9dad2fe70606)
-![image](https://github.com/user-attachments/assets/10b7eb70-dca8-4577-9c3e-f0e3dd4fe70606)
 
-## Mobility system:  
+## Mobility system
+
 The vehicle has a 1 kW front brushless 3 phase electric motor that operates with a 48V Lithium Iron Phosphate (LiFePO4) battery. The trike can be steered manually or through a slip-drive clutch actuator system. 
 The front traction motor is operated at a lower power of 300W with a different controller, for safety. This controller is commanded with a potentiometer-servo combination, providing isolation and an additional level of control since the potentiometer can be rotated like a throttle, by a test rider. 
 
@@ -38,7 +39,8 @@ When steered by the Pixhawk flight controller, QGroundControl ground control sta
 Payload mast: A load bearing mount-point at a height of 120cm from ground, is built using a spring assembly consisting of low-cost COTS carbon fiber and aluminum arrow bodies, and the trike's metal rear basket, that yields to motions in both body frame x, y, and z axes. This assembly helps decouple the mounted imaging and compute system from bumps and jerks that could interfere with data collection, or in the worst case scenario, can damage aspects of the imaging suite assembly. With the mounting assembly, the trike is able to collect data while traversing at speeds up to 12 m/s. 
 
 
-## Autonomy:  
+## Autonomy
+
 The electric tricycle's avionics package consists of a Pixhawk 2.1 flight controller running a rover airframe on the PX4 autopilot software stack. The vehicle is capable of GPS and IMU based waypoint missions, as a base feature, with additional computer vision capabilities through simultaneous localization and mapping 
 
 Figure 2: QGroundControl GCS used for mission planning and situational awareness during a field trial at ASU campus (Dec 2023). 
@@ -51,7 +53,8 @@ The system's onboard computer runs ROS2, with ros nodes for all the cameras, spe
 
 QGC allows GPS mission planning, with all operations possible without internet connectivity, on cached maps
 
-## Mapping systems:
+## Mapping systems
+
 ![image](https://github.com/user-attachments/assets/163e7deb-a30d-4436-906e-73c8537e1836)
 
 Figure 3: Realtime mapping demo, while the vehicle is manually operated by a human. The system can leverage the 3D maps and localized vehicle path to plan unmanned operations to remap routes, for instance for biomass change estimation 
@@ -68,6 +71,10 @@ Point cloud uncertainty (blue=low)
 
 Figure 4: Mapping of a rocky feature set by the vehicle, by orbiting and collecting imagery with its PointGrey Grasshopper3 camera with narrow angle lens.  
 
+## ADS-B and Visual-Odometry State Estimation
+
+Earth Rover includes an SDR-based ADS-B receiver pipeline (RTL-SDR or HydraSDR fronting `dump1090`) and a coupled state estimator that uses the constellation of decoded aircraft positions to estimate the trike's own receiver location and clock bias. The estimator combines a robust active-set least-squares solver with a Kalman-smoothed receiver state, and can be fused with visual-odometry landmark observations to provide a redundant pose estimate in GNSS-denied or degraded conditions. Real-time visualization is provided by RViz, a 2D top-down plot, a glide-profile plot, and a spherical-fisheye landmark VO plot. Launch entry points: `sdr.launch.py`, `adsb.launch.py`, `adsb_aircraft_state_vectors{,_rviz}.launch.py`, `adsb_state_vectors_plot_2d.launch.py`, `adsb_state_vectors_plot_glide.launch.py`, `landmark_vo_plot_2d.launch.py`, `landmark_vo_plot_fisheye.launch.py`. Internal design notes are kept under `docs/` (untracked — request a copy if you need them).
+
 ## Natural Language Interaction and lifelong learning
 We anticipate interaction with a human user through command line interface, verbal interaction, and gestures. The command set may include navigational instructions such as "Follow me" which is integrated with the trike autonomy stack for visual tracking of a human leader. For mission planning however, the bulk of the commanding architecture may be natural language with generative AI in the backbone for tokenizing the instructions and generating optimal exploration plans.  
 
@@ -80,7 +87,7 @@ Estimate plant biomass of this patch
 What is the rock trait distribution along this pavement? 
 Orbit those rocks I am pointing at, with a 10m radius, and show me the 3D model of the rocks.  
  
-## Videos: 
+## Videos
 
 https://drive.google.com/file/d/1M8JIJIpk5DaTXnk8shY55RajGW9rd4tN/view?usp=sharing
 
@@ -111,14 +118,51 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 ## Repository Structure
 
 | Path | Description |
-|------|--------------|
-| **vehicle_control_station/** | Web-based monitoring and control (Django): camera feeds, GPS/map, LiDAR, spectrometer, ROS recording. See [vehicle_control_station/README.md](vehicle_control_station/README.md). |
-| **scripts/startup/** | ROS 2 startup scripts (full/minimal trike stack, systemd, logs). See [scripts/startup/README.md](scripts/startup/README.md). |
-| **scripts/rtl_sdr/** | RTL-SDR nodes (e.g. ADS-B 1090 MHz). |
-| **scripts/hydra_sdr/** | HydraSDR/SoapySDR integration. See [SDR_INTEGRATION.md](SDR_INTEGRATION.md). |
-| **launch/** | ROS 2 launch files: `vehicle_interface`, `full_system`, `earth_rover`, SDR, ADS-B, etc. (require the `deepgis_vehicles` package in your ROS 2 workspace). |
-| **config/** | Configuration (e.g. HydraSDR `config/hydra_sdr.yaml`). |
-| **src/** | Movidius NCS / OpenVINO examples and udev rules. See [src/README.md](src/README.md). |
+|------|-------------|
+| **`src/`** | C++ source for the `deepgis_vehicles` ROS 2 node (`vehicle_interface_node.cpp`) — the MAVROS2 bridge to Pixhawk PX4. |
+| **`include/`** | Public headers for the `deepgis_vehicles` C++ node. |
+| **`launch/`** | ROS 2 launch files (require the `deepgis_vehicles` package built in your ROS 2 workspace, e.g. `~/ros2_ws`):<br>• Vehicle stack: `vehicle_interface.launch.py`, `earth_rover.launch.py`, `full_system.launch.py`<br>• ADS-B / SDR: `sdr.launch.py`, `adsb.launch.py`, `rtl_sdr.launch.py`, `rtl_adsb.launch.py`, `adsb_aircraft_state_vectors{,_rviz}.launch.py`, `adsb_state_vectors_plot_2d.launch.py`, `adsb_state_vectors_plot_glide.launch.py`<br>• Visual odometry: `landmark_vo_plot_2d.launch.py`, `landmark_vo_plot_fisheye.launch.py`<br>• DeepGIS: `deepgis_telemetry.launch.py` |
+| **`scripts/`** | Python nodes and helpers: ADS-B aircraft state-vector publisher, RViz/2D/glide-profile plot nodes, landmark VO plot nodes (2D + spherical fisheye), DeepGIS GPS publisher / rosbag injector / telemetry publisher, recording shell scripts, Pixhawk connection helper. |
+| **`scripts/startup/`** | ROS 2 startup scripts (full / minimal trike stack, systemd units, log helpers). See [`scripts/startup/README.md`](scripts/startup/README.md). |
+| **`scripts/rtl_sdr/`** | RTL-SDR install + ROS nodes (general SDR + ADS-B 1090 MHz decoder). |
+| **`scripts/hydra_sdr/`** | HydraSDR / SoapySDR install + ROS nodes (SDR, ADS-B decoder, spectrum analyzer, visualizer). |
+| **`vehicle_control_station/`** | Django web app for real-time camera feeds, GPS/map, LiDAR, spectrometer, avionics gauges, and ROS recording. See [`vehicle_control_station/README.md`](vehicle_control_station/README.md). |
+| **`config/`** | YAML and RViz configurations: MAVROS, ADS-B state vectors, landmark VO plots, sensors (RealSense, Grasshopper IDs), DeepGIS telemetry. |
+| **`kernelcal/`** | Git submodule — [`darknight-007/kernelcal`](https://github.com/darknight-007/kernelcal): kernel-dynamics / Maximum-Caliber library (companion to the kernel dynamics paper series). Used for spectral analysis and adaptive sampling experiments tied to the rover's environmental monitoring stack. |
+
+## Documentation
+
+Top-level docs tracked in this repo:
+
+- [`CONNECTION_GUIDE.md`](CONNECTION_GUIDE.md) — Connecting to Pixhawk via MAVROS2 (serial-by-id, USB, ACM, SITL).
+- [`DEEPGIS_TELEMETRY_README.md`](DEEPGIS_TELEMETRY_README.md) — DeepGIS telemetry publisher (continuous geospatial uplink from the rover).
+- [`QUICK_START_TELEMETRY.md`](QUICK_START_TELEMETRY.md) — Quick-start guide for the DeepGIS telemetry stack.
+- [`API_COMPLIANCE_CHANGES.md`](API_COMPLIANCE_CHANGES.md) — DeepGIS API compliance change log.
+- [`scripts/startup/README.md`](scripts/startup/README.md) — Startup scripts and systemd units.
+- [`vehicle_control_station/README.md`](vehicle_control_station/README.md) — Web-based vehicle control station.
+
+ADS-B receiver-position estimation, landmark visual odometry plotting, and state-estimation analyses are kept as design notes under `docs/` (intentionally untracked in version control).
+
+## Cloning
+
+This repo uses a git submodule (`kernelcal`). Clone with `--recurse-submodules`:
+
+```bash
+git clone --recurse-submodules git@github.com:Earth-Innovation-Hub/earth-rover.git
+```
+
+If you already cloned without `--recurse-submodules`:
+
+```bash
+cd earth-rover
+git submodule update --init --recursive
+```
+
+To later pull updates (including submodule bumps):
+
+```bash
+git pull --recurse-submodules
+```
 
 ---
 
