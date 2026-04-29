@@ -49,7 +49,7 @@ Figure 2: QGroundControl GCS used for mission planning and situational awareness
 
 (SLAM), ORBSLAM3, ROS, PX4, Gazebo, and PX4 SITL digital twin. 
 
-The system's onboard computer runs ROS2, with ros nodes for all the cameras, spectrometer, lidar ranger, and MAVROS package for communicating with the Pixhawk for telemetry, and commanding the vehicle. 
+The system's onboard computer runs ROS2, with ros nodes for all the cameras, spectrometer, lidar ranger, and MAVROS package for communicating with the Pixhawk for telemetry, and commanding the vehicle. Instrument drivers for the USB laser ranger and Ocean Optics spectrometer (including live plotting) are kept in [`packages/`](#ros-2-instrument-packages) in this repo. 
 
 QGC allows GPS mission planning, with all operations possible without internet connectivity, on cached maps
 
@@ -130,6 +130,58 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 | **`config/`** | YAML and RViz configurations: MAVROS, ADS-B state vectors, landmark VO plots, sensors (RealSense, Grasshopper IDs), DeepGIS telemetry. |
 | **`kernelcal/`** | Git submodule — [`darknight-007/kernelcal`](https://github.com/darknight-007/kernelcal): kernel-dynamics / Maximum-Caliber library (companion to the kernel dynamics paper series). Used for spectral analysis and adaptive sampling experiments tied to the rover's environmental monitoring stack. |
 | **`Makefile`** | Top-level developer shortcuts (build, source, launch deepgis_vehicles, bring the trike stack up/down, etc.). Run `make help`. |
+| **`packages/`** | Colcon-ready ROS 2 add-ons built from this repo (alongside or instead of `~/ros2_ws`): **`laser_ranger`** (USB serial rangefinder) and **`spectrometery_ros2`** (Ocean Optics / SeaBreeze spectrometer publisher, intensity plot + dip markers). See [ROS 2 instrument packages](#ros-2-instrument-packages) below. |
+
+## ROS 2 instrument packages
+
+These packages live under **`packages/`** and use the same ROS 2 distro as the rest of the stack (tested on **Humble**). From the repo root:
+
+```bash
+cd ~/earth-rover
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install --paths packages/laser_ranger packages/spectrometery_ros2
+source install/setup.bash
+```
+
+### `laser_ranger`
+
+Reads a USB serial laser ranger (default device path is the FTDI by-id used on the trike) and publishes:
+
+- `std_msgs/String` — first whitespace-delimited token (`topic_raw`, default `serial_data`)
+- `std_msgs/Float64` — parsed numeric distance when the token is a float (`topic_distance`, default `laser_distance`)
+
+```bash
+ros2 run laser_ranger laser_ranger_node
+# or
+ros2 launch laser_ranger laser_ranger.launch.py serial_device:=/dev/ttyUSB0
+```
+
+Python dependency: **`python3-serial`** (`pip install pyserial` if not from apt).
+
+### `spectrometery_ros2`
+
+- **`Spectrometer_Data_Publisher.py`** — SeaBreeze spectrometer → `std_msgs/Float64MultiArray` on `spectrometer` (integration time, intensities, wavelengths). Parameters: `topic`, `integration_time_micros`, `publish_period_sec`.
+- **`Intensity_Plot.py`** — subscribes to that topic, publishes a Matplotlib-rendered `sensor_msgs/Image` (`spectrometer_plot` by default), with optional **absorption dip** detection (vertical markers + stats). CLI flags include `--dip-prominence`, `--dip-min-distance`, `--update-rate`, `--dpi`, etc.
+
+**Combined launch** (publisher + plot; matches the usual field command with dip tuning defaults `0.05` / `15`):
+
+```bash
+ros2 launch spectrometery_ros2 spectrometer_data_publisher.launch.py
+```
+
+Launch arguments:
+
+| Argument | Default | Purpose |
+|----------|---------|---------|
+| `plot_image` | `true` | Also start `Intensity_Plot.py`; set `false` for hardware publisher only |
+| `topic` | `spectrometer` | Spectrum topic for both nodes |
+| `integration_time_micros` | `500000` | Exposure |
+| `publish_period_sec` | `0.1` | Acquisition period |
+| `dip_prominence` | `0.05` | Min dip depth vs spectrum max (passed to `Intensity_Plot`) |
+| `dip_min_distance` | `15` | Min index spacing between dips |
+| `plot_image_topic` | `spectrometer_plot` | Output image topic |
+
+Dependencies: **`python3-numpy`**, **`python3-matplotlib`**, **`python3-seabreeze`** / SeaBreeze drivers for the spectrometer hardware.
 
 ## Mission Launch Sequence
 
