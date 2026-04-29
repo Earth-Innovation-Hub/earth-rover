@@ -7,10 +7,10 @@ in the same local UTM/ENU frame as the trike (from MAVROS). Requires MAVROS and
 ADS-B aircraft list to be running.
 
 Usage:
-  ros2 launch deepgis_vehicles adsb_aircraft_state_vectors.launch.py
+  ros2 launch radio_vio adsb_aircraft_state_vectors.launch.py
 
   # Custom topics / frame
-  ros2 launch deepgis_vehicles adsb_aircraft_state_vectors.launch.py \
+  ros2 launch radio_vio adsb_aircraft_state_vectors.launch.py \
     aircraft_list_topic:=/adsb/rtl_adsb_decoder_node/aircraft_list \
     mavros_local_frame:=enu
 """
@@ -44,7 +44,7 @@ def generate_launch_description():
     )
 
     state_vectors_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='adsb_aircraft_state_vectors_node.py',
         name='adsb_aircraft_state_vectors_node',
         namespace='adsb',

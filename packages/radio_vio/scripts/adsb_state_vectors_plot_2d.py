@@ -8,7 +8,7 @@ with velocity arrows and optional ICAO labels. Publishes the plot as sensor_msgs
 (no GUI).
 
 Usage:
-  ros2 run deepgis_vehicles adsb_state_vectors_plot_2d.py
+  ros2 run radio_vio adsb_state_vectors_plot_2d.py
 
   # View with: ros2 run rqt_image_view rqt_image_view
   # Or: rqt -> Plugins -> Visualization -> Image View, topic ~/aircraft_plot_image

@@ -20,19 +20,19 @@ Hardware Support:
 
 Usage Examples:
   # Default - 433 MHz ISM band
-  ros2 launch deepgis_vehicles sdr.launch.py
+  ros2 launch radio_vio sdr.launch.py
 
   # Custom frequency and gain
-  ros2 launch deepgis_vehicles sdr.launch.py hydra_frequency:=915.0e6 hydra_gain:=30
+  ros2 launch radio_vio sdr.launch.py hydra_frequency:=915.0e6 hydra_gain:=30
 
   # Use SoapySDR backend
-  ros2 launch deepgis_vehicles sdr.launch.py use_soapy:=true
+  ros2 launch radio_vio sdr.launch.py use_soapy:=true
 
   # High sample rate (10 MSPS)
-  ros2 launch deepgis_vehicles sdr.launch.py hydra_sample_rate:=10.0e6
+  ros2 launch radio_vio sdr.launch.py hydra_sample_rate:=10.0e6
 
   # Enable bias tee for active antenna/LNA
-  ros2 launch deepgis_vehicles sdr.launch.py bias_tee:=true
+  ros2 launch radio_vio sdr.launch.py bias_tee:=true
 """
 
 import os
@@ -219,7 +219,7 @@ def generate_launch_description():
     # ====================================================================
     
     hydra_sdr_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='hydra_sdr_node.py',
         name='hydra_sdr_node',
         namespace='hydra_sdr',
@@ -251,7 +251,7 @@ def generate_launch_description():
     # ====================================================================
     
     spectrum_analyzer_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='spectrum_analyzer_node.py',
         name='spectrum_analyzer_node',
         namespace='hydra_sdr',

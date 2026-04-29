@@ -59,36 +59,10 @@ install(PROGRAMS
   scripts/connect_pixhawk.sh
   scripts/test_gps_publisher.py
   scripts/deepgis_telemetry_publisher.py
-  scripts/adsb_aircraft_state_vectors_node.py
-  scripts/adsb_state_vectors_to_rviz_node.py
-  scripts/adsb_state_vectors_plot_2d.py
-  scripts/adsb_state_vectors_plot_glide.py
-  scripts/landmark_vo_plot_2d.py
-  scripts/landmark_vo_plot_fisheye.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install shared SDR/ADS-B module (used by both HydraSDR and RTL-SDR decoders)
-install(PROGRAMS
-  scripts/sdr_adsb_common.py
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-# Install HydraSDR nodes
-install(PROGRAMS 
-  scripts/hydra_sdr/hydra_sdr_node.py
-  scripts/hydra_sdr/spectrum_analyzer_node.py
-  scripts/hydra_sdr/sdr_visualizer.py
-  scripts/hydra_sdr/adsb_decoder_node.py
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-# Install RTL-SDR V4 nodes
-install(PROGRAMS 
-  scripts/rtl_sdr/rtl_sdr_node.py
-  scripts/rtl_sdr/rtl_adsb_decoder_node.py
-  DESTINATION lib/${PROJECT_NAME}
-)
+# SDR / ADS-B / landmark VIO moved to package radio_vio (packages/radio_vio).
 
 # Install header files (only if include/ directory exists)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/include")

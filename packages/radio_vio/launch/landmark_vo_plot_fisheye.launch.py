@@ -6,7 +6,7 @@ Publishes sensor_msgs/Image on ~/fisheye_panorama (view with rqt_image_view).
 Pure spherical fisheye (equidistant): center=zenith, edge=horizon, 180° FOV.
 
 Usage:
-  ros2 launch deepgis_vehicles landmark_vo_plot_fisheye.launch.py
+  ros2 launch radio_vio landmark_vo_plot_fisheye.launch.py
 """
 
 import os
@@ -19,11 +19,11 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    pkg_prefix = get_package_prefix('deepgis_vehicles')
-    script = os.path.join(pkg_prefix, 'lib', 'deepgis_vehicles', 'landmark_vo_plot_fisheye.py')
+    pkg_prefix = get_package_prefix('radio_vio')
+    script = os.path.join(pkg_prefix, 'lib', 'radio_vio', 'landmark_vo_plot_fisheye.py')
 
     try:
-        pkg_share = get_package_share_directory('deepgis_vehicles')
+        pkg_share = get_package_share_directory('radio_vio')
         default_config = os.path.join(pkg_share, 'config', 'landmark_vo_plot_fisheye.yaml')
     except Exception:
         default_config = None
@@ -48,7 +48,7 @@ def generate_launch_description():
     })
 
     node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable=script,
         name='landmark_vo_plot_fisheye',
         parameters=parameters,

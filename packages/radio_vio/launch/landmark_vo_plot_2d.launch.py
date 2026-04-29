@@ -7,13 +7,13 @@ Uses Grasshopper left (Chameleon narrow) camera model for predicted projections.
 Publishes sensor_msgs/Image on ~/landmark_vo_plot_image (view with rqt_image_view).
 
 Usage:
-  ros2 launch deepgis_vehicles landmark_vo_plot_2d.launch.py
+  ros2 launch radio_vio landmark_vo_plot_2d.launch.py
 
   # Demo mode (synthetic data when no topics)
-  ros2 launch deepgis_vehicles landmark_vo_plot_2d.launch.py demo_mode:=true
+  ros2 launch radio_vio landmark_vo_plot_2d.launch.py demo_mode:=true
 
   # Custom odom topic (e.g. vehicle/odometry)
-  ros2 launch deepgis_vehicles landmark_vo_plot_2d.launch.py odom_topic:=/vehicle/odometry
+  ros2 launch radio_vio landmark_vo_plot_2d.launch.py odom_topic:=/vehicle/odometry
 """
 
 import os
@@ -51,12 +51,12 @@ def generate_launch_description():
         description='Path to YAML config (optional)'
     )
 
-    pkg_prefix = get_package_prefix('deepgis_vehicles')
-    plot_script = os.path.join(pkg_prefix, 'lib', 'deepgis_vehicles', 'landmark_vo_plot_2d.py')
+    pkg_prefix = get_package_prefix('radio_vio')
+    plot_script = os.path.join(pkg_prefix, 'lib', 'radio_vio', 'landmark_vo_plot_2d.py')
 
     # Parameters: prefer config_file if provided, else package YAML + launch overrides
     try:
-        pkg_share = get_package_share_directory('deepgis_vehicles')
+        pkg_share = get_package_share_directory('radio_vio')
         default_config = os.path.join(pkg_share, 'config', 'landmark_vo_plot_2d.yaml')
     except Exception:
         default_config = None
@@ -87,7 +87,7 @@ def generate_launch_description():
         })
 
     plot_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable=plot_script,
         name='landmark_vo_plot_2d',
         parameters=parameters,

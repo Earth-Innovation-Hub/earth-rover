@@ -54,8 +54,12 @@ from rclpy.node import Node
 from std_msgs.msg import String, Float32MultiArray
 from sensor_msgs.msg import NavSatFix
 
-# Add script install directory to path for shared module import
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# sdr_adsb_common lives alongside this tree in packages/radio_vio/scripts/ (source)
+# or flat in lib/radio_vio/ (install).
+_here = os.path.dirname(os.path.abspath(__file__))
+for _p in (_here, os.path.abspath(os.path.join(_here, '..'))):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 from sdr_adsb_common import (
     Aircraft, AircraftTracker, ADSBIQDemodulator, PyModeSDecoder,
     PYMODES_AVAILABLE, publish_aircraft_navsatfix,

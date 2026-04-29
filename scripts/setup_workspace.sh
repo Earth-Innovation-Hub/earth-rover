@@ -9,7 +9,7 @@
 #   1. clone+update the git submodules under external/  (the darknight-007
 #      forks of deepgis_vision and metavision_driver)
 #   2. symlink ~/ros2_ws/src/earth-rover -> this repo, so colcon discovers all
-#      first-party packages (deepgis_vehicles, rtlsdr_ros2, spectrometery_ros2,
+#      first-party packages (deepgis_vehicles, radio_vio, laser_ranger, rtlsdr_ros2, spectrometery_ros2,
 #      and the external/ submodules)
 #   3. vcs import the upstream pins from earth-rover.repos into ~/ros2_ws/src/
 #   4. (optional) git apply external/patches/*.patch on top of the imported
@@ -77,6 +77,8 @@ link_pkg() {
 }
 
 link_pkg earth-rover         "$REPO_DIR"
+link_pkg radio_vio           "$REPO_DIR/packages/radio_vio"
+link_pkg laser_ranger        "$REPO_DIR/packages/laser_ranger"
 link_pkg rtlsdr_ros2         "$REPO_DIR/packages/rtlsdr_ros2"
 link_pkg spectrometery_ros2  "$REPO_DIR/packages/spectrometery_ros2"
 link_pkg deepgis_vision      "$REPO_DIR/external/deepgis_vision"

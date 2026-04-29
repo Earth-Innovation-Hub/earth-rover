@@ -9,7 +9,7 @@ echo ""
 # Check if topic exists
 if ! ros2 topic list | grep -q "landmark_vo_plot_image"; then
     echo "Topic not found. Is landmark_vo_plot_2d node running?"
-    echo "  ros2 launch deepgis_vehicles landmark_vo_plot_2d.launch.py"
+    echo "  ros2 launch radio_vio landmark_vo_plot_2d.launch.py"
     exit 1
 fi
 

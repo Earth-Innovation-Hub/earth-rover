@@ -7,9 +7,9 @@ Requires the aircraft state vectors node (publishing JSON on
 Publishes sensor_msgs/Image on ~/aircraft_plot_glide_image.
 
 Usage:
-  ros2 launch deepgis_vehicles adsb_state_vectors_plot_glide.launch.py
+  ros2 launch radio_vio adsb_state_vectors_plot_glide.launch.py
 
-  ros2 launch deepgis_vehicles adsb_state_vectors_plot_glide.launch.py glide_angle_range_deg:=10.0
+  ros2 launch radio_vio adsb_state_vectors_plot_glide.launch.py glide_angle_range_deg:=10.0
 """
 
 import os
@@ -37,11 +37,11 @@ def generate_launch_description():
         default_value='45000.0',
         description='Maximum altitude for Y axis (ft)',
     )
-    pkg_prefix = get_package_prefix('deepgis_vehicles')
-    plot_script = os.path.join(pkg_prefix, 'lib', 'deepgis_vehicles', 'adsb_state_vectors_plot_glide.py')
+    pkg_prefix = get_package_prefix('radio_vio')
+    plot_script = os.path.join(pkg_prefix, 'lib', 'radio_vio', 'adsb_state_vectors_plot_glide.py')
 
     plot_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable=plot_script,
         name='adsb_state_vectors_plot_glide',
         parameters=[{

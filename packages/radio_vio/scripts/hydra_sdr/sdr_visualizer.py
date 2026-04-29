@@ -13,7 +13,7 @@ Features:
 - Configurable update rates
 
 Usage:
-    ros2 run deepgis_vehicles sdr_visualizer.py
+    ros2 run radio_vio sdr_visualizer.py
 """
 
 import sys

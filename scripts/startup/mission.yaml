@@ -113,7 +113,7 @@ services:
     name: RTL ADS-B Decoder
     tier: 1
     after: [hw-rtlsdr]
-    exec: 'exec ros2 launch deepgis_vehicles rtl_adsb.launch.py'
+    exec: 'exec ros2 launch radio_vio rtl_adsb.launch.py'
     description: dump1090-based ADS-B decoder publishing raw aircraft messages.
     optional: true
 
@@ -131,7 +131,7 @@ services:
     tier: 2
     after: [rtl-adsb, mavros]
     requires: [rtl-adsb]
-    exec: 'exec ros2 launch deepgis_vehicles adsb_aircraft_state_vectors.launch.py'
+    exec: 'exec ros2 launch radio_vio adsb_aircraft_state_vectors.launch.py'
     description: Decodes ADS-B into per-aircraft state vectors in the trike frame.
 
   - id: adsb-plot-2d
@@ -139,7 +139,7 @@ services:
     tier: 2
     after: [adsb-state]
     requires: [adsb-state]
-    exec: 'exec ros2 launch deepgis_vehicles adsb_state_vectors_plot_2d.launch.py'
+    exec: 'exec ros2 launch radio_vio adsb_state_vectors_plot_2d.launch.py'
     description: Renders aircraft to a 2D image topic for the VCS.
 
   - id: adsb-glide
@@ -147,7 +147,7 @@ services:
     tier: 2
     after: [adsb-state]
     requires: [adsb-state]
-    exec: 'exec ros2 launch deepgis_vehicles adsb_state_vectors_plot_glide.launch.py'
+    exec: 'exec ros2 launch radio_vio adsb_state_vectors_plot_glide.launch.py'
     description: Altitude-vs-path-angle glide-profile renderer.
     optional: true
 
@@ -156,7 +156,7 @@ services:
     tier: 2
     after: [realsense]
     requires: [realsense]
-    exec: 'exec ros2 launch deepgis_vehicles landmark_vo_plot_fisheye.launch.py'
+    exec: 'exec ros2 launch radio_vio landmark_vo_plot_fisheye.launch.py'
     description: Visual-odometry plot from the RealSense fisheye stream.
     optional: true
 

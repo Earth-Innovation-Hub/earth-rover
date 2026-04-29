@@ -32,7 +32,7 @@ FCU_URL="${FCU_URL:-${PIXHAWK_DEVICE}:${PIXHAWK_BAUD}}"
 # GCS URL for QGroundControl etc. (set empty to omit). Your history: udp://192.168.1.7:14550
 GCS_URL="${GCS_URL:-udp://192.168.1.7:14550}"
 
-# Source ROS and workspace so deepgis_vehicles and spectrometery_ros2 are available
+# Source ROS and workspace so deepgis_vehicles, radio_vio, and spectrometery_ros2 are available
 if [ -f "/opt/ros/$ROS_DISTRO/setup.bash" ]; then
     source "/opt/ros/$ROS_DISTRO/setup.bash"
 fi
@@ -117,40 +117,40 @@ echo "  └─ PID: $! (log: $LOG_DIR/web_video_server.log)"
 
 # 9. RTL ADS-B (dump1090; HTTP on 8082 to avoid 8080)
 echo "[9/15] Starting RTL ADS-B decoder..."
-if ros2 pkg list 2>/dev/null | grep -q deepgis_vehicles; then
-    nohup ros2 launch deepgis_vehicles rtl_adsb.launch.py > "$LOG_DIR/rtl_adsb.log" 2>&1 &
+if ros2 pkg list 2>/dev/null | grep -q radio_vio; then
+    nohup ros2 launch radio_vio rtl_adsb.launch.py > "$LOG_DIR/rtl_adsb.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/rtl_adsb.log)"
     sleep 3
 else
-    echo "  └─ SKIP: deepgis_vehicles not found"
+    echo "  └─ SKIP: radio_vio not found"
 fi
 
 # 10. ADS-B aircraft state vectors (trike frame; needs MAVROS + RTL ADS-B)
 echo "[10/15] Starting ADS-B aircraft state vectors..."
-if ros2 pkg list 2>/dev/null | grep -q deepgis_vehicles; then
-    nohup ros2 launch deepgis_vehicles adsb_aircraft_state_vectors.launch.py > "$LOG_DIR/adsb_state_vectors.log" 2>&1 &
+if ros2 pkg list 2>/dev/null | grep -q radio_vio; then
+    nohup ros2 launch radio_vio adsb_aircraft_state_vectors.launch.py > "$LOG_DIR/adsb_state_vectors.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/adsb_state_vectors.log)"
     sleep 2
 else
-    echo "  └─ SKIP: deepgis_vehicles not found"
+    echo "  └─ SKIP: radio_vio not found"
 fi
 
 # 11. ADS-B 2D plot image (publishes ~/aircraft_plot_image for VCS)
 echo "[11/15] Starting ADS-B 2D plot image..."
-if ros2 pkg list 2>/dev/null | grep -q deepgis_vehicles; then
-    nohup ros2 launch deepgis_vehicles adsb_state_vectors_plot_2d.launch.py > "$LOG_DIR/adsb_plot_2d.log" 2>&1 &
+if ros2 pkg list 2>/dev/null | grep -q radio_vio; then
+    nohup ros2 launch radio_vio adsb_state_vectors_plot_2d.launch.py > "$LOG_DIR/adsb_plot_2d.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/adsb_plot_2d.log)"
 else
-    echo "  └─ SKIP: deepgis_vehicles not found"
+    echo "  └─ SKIP: radio_vio not found"
 fi
 
 # 12. ADS-B glide profile plot (altitude vs path angle)
 echo "[12/15] Starting ADS-B glide profile plot..."
-if ros2 pkg list 2>/dev/null | grep -q deepgis_vehicles; then
-    nohup ros2 launch deepgis_vehicles adsb_state_vectors_plot_glide.launch.py > "$LOG_DIR/adsb_plot_glide.log" 2>&1 &
+if ros2 pkg list 2>/dev/null | grep -q radio_vio; then
+    nohup ros2 launch radio_vio adsb_state_vectors_plot_glide.launch.py > "$LOG_DIR/adsb_plot_glide.log" 2>&1 &
     echo "  └─ PID: $! (log: $LOG_DIR/adsb_plot_glide.log)"
 else
-    echo "  └─ SKIP: deepgis_vehicles not found"
+    echo "  └─ SKIP: radio_vio not found"
 fi
 
 # 13. Velodyne LiDAR

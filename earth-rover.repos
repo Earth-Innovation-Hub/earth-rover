@@ -14,7 +14,7 @@
 # Bump the SHAs deliberately when you want to take an upstream update.
 #
 # Notes:
-#   - First-party code (`deepgis_vehicles`, `rtlsdr_ros2`, `spectrometery_ros2`)
+#   - First-party code (`deepgis_vehicles`, `radio_vio`, `laser_ranger`, `rtlsdr_ros2`, `spectrometery_ros2`)
 #     lives inside this repo (`./` and `./packages/`).  It is NOT in this file.
 #   - First-party forks (`deepgis_vision`, `metavision_driver`) live as git
 #     submodules under `./external/`.  They are NOT in this file either.

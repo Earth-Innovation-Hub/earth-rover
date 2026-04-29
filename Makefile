@@ -14,6 +14,7 @@
 ROS_DISTRO       ?= humble
 ROS2_WS          ?= $(HOME)/ros2_ws
 PKG              ?= deepgis_vehicles
+RADIO_PKG        ?= radio_vio
 EARTH_ROVER_HOME ?= $(CURDIR)
 STARTUP_DIR      ?= $(EARTH_ROVER_HOME)/scripts/startup
 
@@ -28,7 +29,7 @@ WITH_ROS = bash -c 'set -e; \
     [ -f $(ROS2_WS)/install/setup.bash ] && source $(ROS2_WS)/install/setup.bash; \
     $(CMD)'
 
-.PHONY: help build rebuild build-all source \
+.PHONY: help build build-radio rebuild build-all source \
         landmark-vo landmark-vo-fisheye rtl-adsb adsb-state adsb-glide sdr \
         mavros mavros-bg \
         gh-cam meta-cam velo rs-cam spinnaker-left spinnaker-right \
@@ -45,15 +46,16 @@ help:
 	@printf "Earth Rover make targets\n"
 	@printf "========================\n"
 	@printf "  build              - colcon build --packages-select $(PKG) (+ source)\n"
+	@printf "  build-radio        - colcon build --packages-select $(RADIO_PKG)\n"
 	@printf "  build-all          - colcon build everything (+ source)\n"
 	@printf "  rebuild            - rm -rf build/ install/ log/ && colcon build\n"
 	@printf "\n"
-	@printf "  landmark-vo        - build + source + landmark_vo_plot_2d.launch.py\n"
-	@printf "  landmark-vo-fisheye - build + source + landmark_vo_plot_fisheye.launch.py\n"
-	@printf "  rtl-adsb           - build + source + rtl_adsb.launch.py\n"
-	@printf "  adsb-state         - adsb_aircraft_state_vectors.launch.py\n"
-	@printf "  adsb-glide         - adsb_state_vectors_plot_glide.launch.py\n"
-	@printf "  sdr                - sdr.launch.py\n"
+	@printf "  landmark-vo        - build $(RADIO_PKG) + source + landmark_vo_plot_2d.launch.py\n"
+	@printf "  landmark-vo-fisheye - build $(RADIO_PKG) + source + landmark_vo_plot_fisheye.launch.py\n"
+	@printf "  rtl-adsb           - build $(RADIO_PKG) + source + rtl_adsb.launch.py\n"
+	@printf "  adsb-state         - adsb_aircraft_state_vectors.launch.py ($(RADIO_PKG))\n"
+	@printf "  adsb-glide         - adsb_state_vectors_plot_glide.launch.py ($(RADIO_PKG))\n"
+	@printf "  sdr                - sdr.launch.py ($(RADIO_PKG))\n"
 	@printf "\n"
 	@printf "  mavros             - mavros px4.launch (FCU+GCS from PIXHAWK_*/GCS_URL vars)\n"
 	@printf "  mavros-bg          - same, in background via systemd --user\n"
@@ -92,6 +94,7 @@ info:
 	@echo "ROS_DISTRO       = $(ROS_DISTRO)"
 	@echo "ROS2_WS          = $(ROS2_WS)"
 	@echo "PKG              = $(PKG)"
+	@echo "RADIO_PKG        = $(RADIO_PKG)"
 	@echo "EARTH_ROVER_HOME = $(EARTH_ROVER_HOME)"
 	@echo "PIXHAWK_DEVICE   = $(PIXHAWK_DEVICE)"
 	@echo "PIXHAWK_BAUD     = $(PIXHAWK_BAUD)"
@@ -115,23 +118,26 @@ rebuild:
 
 # ---- The dominant inner-loop launches ---------------------------------------
 
+build-radio:
+	cd $(ROS2_WS) && bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && colcon build --packages-select $(RADIO_PKG) && source install/setup.bash'
+
 landmark-vo:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(PKG) && source install/setup.bash && exec ros2 launch $(PKG) landmark_vo_plot_2d.launch.py estimated_position_topic:=/adsb/rtl_adsb_decoder_node/estimated_position'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) landmark_vo_plot_2d.launch.py estimated_position_topic:=/adsb/rtl_adsb_decoder_node/estimated_position'
 
 landmark-vo-fisheye:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(PKG) && source install/setup.bash && exec ros2 launch $(PKG) landmark_vo_plot_fisheye.launch.py'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) landmark_vo_plot_fisheye.launch.py'
 
 rtl-adsb:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(PKG) && source install/setup.bash && exec ros2 launch $(PKG) rtl_adsb.launch.py'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) rtl_adsb.launch.py'
 
 adsb-state:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && source install/setup.bash && exec ros2 launch $(PKG) adsb_aircraft_state_vectors.launch.py'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) adsb_aircraft_state_vectors.launch.py'
 
 adsb-glide:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && source install/setup.bash && exec ros2 launch $(PKG) adsb_state_vectors_plot_glide.launch.py'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) adsb_state_vectors_plot_glide.launch.py'
 
 sdr:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && source install/setup.bash && exec ros2 launch $(PKG) sdr.launch.py'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) sdr.launch.py'
 
 # ---- MAVROS -----------------------------------------------------------------
 

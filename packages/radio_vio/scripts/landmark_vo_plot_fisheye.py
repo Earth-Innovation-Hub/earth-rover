@@ -11,7 +11,7 @@ Subscribes to same topics as landmark_vo_plot_2d: odom, estimated_position,
 landmarks, observations, aircraft_state_vectors.
 
 Usage:
-  ros2 launch deepgis_vehicles landmark_vo_plot_fisheye.launch.py
+  ros2 launch radio_vio landmark_vo_plot_fisheye.launch.py
   ros2 run rqt_image_view rqt_image_view  # subscribe to /landmark_vo_plot_fisheye/fisheye_panorama
 """
 

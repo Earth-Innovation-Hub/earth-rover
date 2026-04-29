@@ -15,19 +15,19 @@ Hardware Support:
 
 Usage Examples:
   # Default -- 433 MHz ISM band, auto-gain, 2.4 MSPS
-  ros2 launch deepgis_vehicles rtl_sdr.launch.py
+  ros2 launch radio_vio rtl_sdr.launch.py
 
   # Custom frequency and gain
-  ros2 launch deepgis_vehicles rtl_sdr.launch.py frequency:=915.0e6 gain:=28.0
+  ros2 launch radio_vio rtl_sdr.launch.py frequency:=915.0e6 gain:=28.0
 
   # Enable bias tee for active antenna
-  ros2 launch deepgis_vehicles rtl_sdr.launch.py bias_tee:=true
+  ros2 launch radio_vio rtl_sdr.launch.py bias_tee:=true
 
   # HF direct sampling (500 kHz - 28.8 MHz)
-  ros2 launch deepgis_vehicles rtl_sdr.launch.py frequency:=7.0e6 direct_sampling:=2
+  ros2 launch radio_vio rtl_sdr.launch.py frequency:=7.0e6 direct_sampling:=2
 
   # With visualizer disabled (headless)
-  ros2 launch deepgis_vehicles rtl_sdr.launch.py enable_visualizer:=false
+  ros2 launch radio_vio rtl_sdr.launch.py enable_visualizer:=false
 """
 
 from launch import LaunchDescription
@@ -178,7 +178,7 @@ def generate_launch_description():
     # ====================================================================
 
     rtl_sdr_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='rtl_sdr_node.py',
         name='rtl_sdr_node',
         namespace='rtl_sdr',
@@ -207,7 +207,7 @@ def generate_launch_description():
     # ====================================================================
 
     spectrum_analyzer_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='spectrum_analyzer_node.py',
         name='spectrum_analyzer_node',
         namespace='rtl_sdr',
@@ -233,7 +233,7 @@ def generate_launch_description():
     # ====================================================================
 
     sdr_visualizer_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='sdr_visualizer.py',
         name='sdr_visualizer',
         namespace='rtl_sdr_viz',

@@ -8,16 +8,16 @@ to broadcast position, velocity, and identification information.
 
 Usage:
   # Basic ADS-B decoding
-  ros2 launch deepgis_vehicles adsb.launch.py
+  ros2 launch radio_vio adsb.launch.py
 
   # With custom SDR configuration
-  ros2 launch deepgis_vehicles adsb.launch.py \
+  ros2 launch radio_vio adsb.launch.py \
     hydra_frequency:=1090.0e6 \
     hydra_sample_rate:=10.0e6 \
     hydra_gain:=30
 
   # Enable raw message publishing
-  ros2 launch deepgis_vehicles adsb.launch.py publish_raw_messages:=true
+  ros2 launch radio_vio adsb.launch.py publish_raw_messages:=true
 """
 
 from launch import LaunchDescription
@@ -120,7 +120,7 @@ def generate_launch_description():
     # ====================================================================
     
     hydra_sdr_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='hydra_sdr_node.py',
         name='hydra_sdr_node',
         namespace='hydra_sdr',
@@ -142,7 +142,7 @@ def generate_launch_description():
     # ====================================================================
     
     spectrum_analyzer_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='spectrum_analyzer_node.py',
         name='spectrum_analyzer_node',
         namespace='hydra_sdr',
@@ -168,7 +168,7 @@ def generate_launch_description():
     # ====================================================================
     
     adsb_decoder_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='adsb_decoder_node.py',
         name='adsb_decoder_node',
         namespace='adsb',
@@ -191,7 +191,7 @@ def generate_launch_description():
     # ====================================================================
     
     sdr_visualizer_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='sdr_visualizer.py',
         name='sdr_visualizer',
         namespace='sdr_viz',

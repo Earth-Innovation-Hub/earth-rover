@@ -1,0 +1,48 @@
+# Build artifacts
+build/
+install/
+log/
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# SDR installer build directories (cloned repos + compiled tools)
+scripts/rtl_sdr/.build/
+scripts/hydra_sdr/.build/
+packages/radio_vio/scripts/rtl_sdr/.build/
+packages/radio_vio/scripts/hydra_sdr/.build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs (keep only root README.md in repo)
+docs/
+
+# Merge with local-only ignore fragments if present
+.gitignore.local
+.gitignore.merged
+
+# Added during santacruz cleanup (2026-04-23)
+ncs_env/
+*.log
+.installed.cfg
+.idea/
+replit_zip_error_log.txt
+
+# Django runtime artifacts (do not commit local DB / migrations cache)
+vehicle_control_station/db.sqlite3
+vehicle_control_station/staticfiles/
+
+# Empty/half-populated config trees that don't belong in git
+config/rviz/
+config/sensors/

@@ -11,8 +11,8 @@ Subscribes to aircraft state vectors (JSON). Renders a 2D profile:
   - Trike shown as horizontal line at its altitude
 
 Usage:
-  ros2 run deepgis_vehicles adsb_state_vectors_plot_glide.py
-  ros2 launch deepgis_vehicles adsb_state_vectors_plot_glide.launch.py
+  ros2 run radio_vio adsb_state_vectors_plot_glide.py
+  ros2 launch radio_vio adsb_state_vectors_plot_glide.launch.py
 """
 
 import json

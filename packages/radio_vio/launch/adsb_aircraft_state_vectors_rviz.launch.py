@@ -10,13 +10,13 @@ Starts:
 Requires MAVROS and ADS-B aircraft list to be running (e.g. rtl_adsb stack).
 
 Usage:
-  ros2 launch deepgis_vehicles adsb_aircraft_state_vectors_rviz.launch.py
+  ros2 launch radio_vio adsb_aircraft_state_vectors_rviz.launch.py
 
   # Without launching state vectors (if already running)
-  ros2 launch deepgis_vehicles adsb_aircraft_state_vectors_rviz.launch.py launch_state_vectors:=false
+  ros2 launch radio_vio adsb_aircraft_state_vectors_rviz.launch.py launch_state_vectors:=false
 
   # Custom fixed frame (must match MAVROS local frame)
-  ros2 launch deepgis_vehicles adsb_aircraft_state_vectors_rviz.launch.py frame_id:=odom
+  ros2 launch radio_vio adsb_aircraft_state_vectors_rviz.launch.py frame_id:=odom
 """
 
 import os
@@ -30,11 +30,11 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    pkg_share = get_package_share_directory('deepgis_vehicles')
-    pkg_prefix = get_package_prefix('deepgis_vehicles')
+    pkg_share = get_package_share_directory('radio_vio')
+    pkg_prefix = get_package_prefix('radio_vio')
     rviz_config = os.path.join(pkg_share, 'adsb_state_vectors.rviz')
     # Use full path to converter script so launch finds it after install
-    to_rviz_script = os.path.join(pkg_prefix, 'lib', 'deepgis_vehicles', 'adsb_state_vectors_to_rviz_node.py')
+    to_rviz_script = os.path.join(pkg_prefix, 'lib', 'radio_vio', 'adsb_state_vectors_to_rviz_node.py')
 
     launch_state_vectors_arg = DeclareLaunchArgument(
         'launch_state_vectors',
@@ -63,7 +63,7 @@ def generate_launch_description():
     )
 
     state_vectors_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable='adsb_aircraft_state_vectors_node.py',
         name='adsb_aircraft_state_vectors_node',
         namespace='adsb',
@@ -79,7 +79,7 @@ def generate_launch_description():
     )
 
     to_rviz_node = Node(
-        package='deepgis_vehicles',
+        package='radio_vio',
         executable=to_rviz_script,
         name='adsb_state_vectors_to_rviz_node',
         namespace='adsb',

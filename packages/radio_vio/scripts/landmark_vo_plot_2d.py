@@ -15,8 +15,8 @@ Ref bootstrap from global_position and raw/fix. Estimated position parsing
 (kf_lat/kf_lon or lat/lon) same as VCS.
 
 Usage:
-  ros2 launch deepgis_vehicles landmark_vo_plot_2d.launch.py
-  ros2 launch deepgis_vehicles landmark_vo_plot_2d.launch.py demo_mode:=true
+  ros2 launch radio_vio landmark_vo_plot_2d.launch.py
+  ros2 launch radio_vio landmark_vo_plot_2d.launch.py demo_mode:=true
 """
 
 import json

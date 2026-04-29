@@ -23,7 +23,7 @@ This prototype is a 26" Schwinn adult tricycle frame, augmented with a front ele
 - **Compute**: 11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz, 32GB RAM, 512GB internal SSD, 2TB external SSD; Google Coral Tensor Processing Unit (TPU)
 - **Avionics**: Pixhawk 2.1 Flight Controller, PX4 open source autopilot software stack; Here+ GPS with RTK option
 - **Sensor suite**: PointGrey Grasshopper3 with narrow angle (left) and wide angle (right) lenses; MicaSense Altum 6 band multi-spectral camera triggered by flight controller, 100m LiDARLite LASER ranger; OceanOptics FLAME UV-VIS-NIR spectrometer; Intel RealSense T265 tracking camera
-- **Communication**: Ubiquiti networks 2.4GHz AirMax PicoStation access point; WiFi hotspot on onboard compute; 915 MHz telemetry radio to Pixhawk; 2.4GHz DSMX RC transmitter to Pixhawk. Optional SDR (HydraSDR, RTL-SDR) for ADS-B and spectrum monitoring — see [`scripts/hydra_sdr/`](scripts/hydra_sdr/) and [`scripts/rtl_sdr/`](scripts/rtl_sdr/), and the `sdr.launch.py` / `adsb.launch.py` / `rtl_sdr.launch.py` / `rtl_adsb.launch.py` launch files.
+- **Communication**: Ubiquiti networks 2.4GHz AirMax PicoStation access point; WiFi hotspot on onboard compute; 915 MHz telemetry radio to Pixhawk; 2.4GHz DSMX RC transmitter to Pixhawk. Optional SDR (HydraSDR, RTL-SDR) for ADS-B and spectrum monitoring — install helpers live under [`packages/radio_vio/scripts/`](packages/radio_vio/scripts/); launch `sdr.launch.py`, `adsb.launch.py`, `rtl_sdr.launch.py`, and `rtl_adsb.launch.py` via **`ros2 launch radio_vio …`**.
 
 ![image](https://github.com/user-attachments/assets/836d27e1-4022-4540-929a-9dad2fe70606)
 
@@ -73,7 +73,7 @@ Figure 4: Mapping of a rocky feature set by the vehicle, by orbiting and collect
 
 ## ADS-B and Visual-Odometry State Estimation
 
-Earth Rover includes an SDR-based ADS-B receiver pipeline (RTL-SDR or HydraSDR fronting `dump1090`) and a coupled state estimator that uses the constellation of decoded aircraft positions to estimate the trike's own receiver location and clock bias. The estimator combines a robust active-set least-squares solver with a Kalman-smoothed receiver state, and can be fused with visual-odometry landmark observations to provide a redundant pose estimate in GNSS-denied or degraded conditions. Real-time visualization is provided by RViz, a 2D top-down plot, a glide-profile plot, and a spherical-fisheye landmark VO plot. Launch entry points: `sdr.launch.py`, `adsb.launch.py`, `adsb_aircraft_state_vectors{,_rviz}.launch.py`, `adsb_state_vectors_plot_2d.launch.py`, `adsb_state_vectors_plot_glide.launch.py`, `landmark_vo_plot_2d.launch.py`, `landmark_vo_plot_fisheye.launch.py`. Internal design notes are kept under `docs/` (untracked — request a copy if you need them).
+Earth Rover includes an SDR-based ADS-B receiver pipeline (RTL-SDR or HydraSDR fronting `dump1090`) and a coupled state estimator that uses the constellation of decoded aircraft positions to estimate the trike's own receiver location and clock bias. The estimator combines a robust active-set least-squares solver with a Kalman-smoothed receiver state, and can be fused with visual-odometry landmark observations to provide a redundant pose estimate in GNSS-denied or degraded conditions. Real-time visualization is provided by RViz, a 2D top-down plot, a glide-profile plot, and a spherical-fisheye landmark VO plot. Launch entry points live in the **`radio_vio`** package: `sdr.launch.py`, `adsb.launch.py`, `adsb_aircraft_state_vectors{,_rviz}.launch.py`, `adsb_state_vectors_plot_2d.launch.py`, `adsb_state_vectors_plot_glide.launch.py`, `landmark_vo_plot_2d.launch.py`, `landmark_vo_plot_fisheye.launch.py`, `rtl_sdr.launch.py`, `rtl_adsb.launch.py`. Vehicle-side launches remain under **`deepgis_vehicles`** (`launch/` at repo root). Internal design notes are kept under `docs/` (untracked — request a copy if you need them).
 
 ## Natural Language Interaction and lifelong learning
 We anticipate interaction with a human user through command line interface, verbal interaction, and gestures. The command set may include navigational instructions such as "Follow me" which is integrated with the trike autonomy stack for visual tracking of a human leader. For mission planning however, the bulk of the commanding architecture may be natural language with generative AI in the backbone for tokenizing the instructions and generating optimal exploration plans.  
@@ -121,16 +121,15 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 |------|-------------|
 | **`src/`** | C++ source for the `deepgis_vehicles` ROS 2 node (`vehicle_interface_node.cpp`) — the MAVROS2 bridge to Pixhawk PX4. |
 | **`include/`** | Public headers for the `deepgis_vehicles` C++ node. |
-| **`launch/`** | ROS 2 launch files (require the `deepgis_vehicles` package built in your ROS 2 workspace, e.g. `~/ros2_ws`):<br>• Vehicle stack: `vehicle_interface.launch.py`, `earth_rover.launch.py`, `full_system.launch.py`<br>• ADS-B / SDR: `sdr.launch.py`, `adsb.launch.py`, `rtl_sdr.launch.py`, `rtl_adsb.launch.py`, `adsb_aircraft_state_vectors{,_rviz}.launch.py`, `adsb_state_vectors_plot_2d.launch.py`, `adsb_state_vectors_plot_glide.launch.py`<br>• Visual odometry: `landmark_vo_plot_2d.launch.py`, `landmark_vo_plot_fisheye.launch.py`<br>• DeepGIS: `deepgis_telemetry.launch.py` |
-| **`scripts/`** | Python nodes and helpers: ADS-B aircraft state-vector publisher, RViz/2D/glide-profile plot nodes, landmark VO plot nodes (2D + spherical fisheye), DeepGIS GPS publisher / rosbag injector / telemetry publisher, recording shell scripts, Pixhawk connection helper. |
+| **`launch/`** | ROS 2 launch files for the **vehicle / MAVROS** stack (`vehicle_interface`, `earth_rover`, `full_system`, `deepgis_telemetry`). Built with the **`deepgis_vehicles`** package at the repo root. |
+| **`packages/radio_vio/`** | **SDR / ADS-B / radio–VIO** stack: HydraSDR + RTL-SDR nodes, ADS-B decoders, aircraft state vectors, glide/2D plotters, landmark VO image publishers. Launch with `ros2 launch radio_vio …` after `colcon build --packages-select radio_vio`. |
+| **`scripts/`** | Python tools in the **vehicle** tree: DeepGIS telemetry / GPS publishers, rosbag injector, tests, Pixhawk helper, **`scripts/startup/`** mission glue. SDR / ADS-B / landmark-VO executables live under **`packages/radio_vio/scripts/`**. |
 | **`scripts/startup/`** | ROS 2 startup scripts (full / minimal trike stack, systemd units, log helpers). See [`scripts/startup/README.md`](scripts/startup/README.md). |
-| **`scripts/rtl_sdr/`** | RTL-SDR install + ROS nodes (general SDR + ADS-B 1090 MHz decoder). |
-| **`scripts/hydra_sdr/`** | HydraSDR / SoapySDR install + ROS nodes (SDR, ADS-B decoder, spectrum analyzer, visualizer). |
 | **`vehicle_control_station/`** | Django web app for real-time camera feeds, GPS/map, LiDAR, spectrometer, avionics gauges, and ROS recording. See [`vehicle_control_station/README.md`](vehicle_control_station/README.md). |
-| **`config/`** | YAML and RViz configurations: MAVROS, ADS-B state vectors, landmark VO plots, sensors (RealSense, Grasshopper IDs), DeepGIS telemetry. |
+| **`config/`** | YAML and RViz configurations for MAVROS, sensors (RealSense, Grasshopper IDs), DeepGIS telemetry. ADS-B / landmark-VO RViz/YAML configs ship with **`radio_vio`**. |
 | **`kernelcal/`** | Git submodule — [`darknight-007/kernelcal`](https://github.com/darknight-007/kernelcal): kernel-dynamics / Maximum-Caliber library (companion to the kernel dynamics paper series). Used for spectral analysis and adaptive sampling experiments tied to the rover's environmental monitoring stack. |
-| **`Makefile`** | Top-level developer shortcuts (build, source, launch deepgis_vehicles, bring the trike stack up/down, etc.). Run `make help`. |
-| **`packages/`** | Colcon-ready ROS 2 add-ons built from this repo (alongside or instead of `~/ros2_ws`): **`laser_ranger`** (USB serial rangefinder) and **`spectrometery_ros2`** (Ocean Optics / SeaBreeze spectrometer publisher, intensity plot + dip markers). See [ROS 2 instrument packages](#ros-2-instrument-packages) below. |
+| **`Makefile`** | Developer shortcuts (`make help`): vehicle **`deepgis_vehicles`**, radio **`radio_vio`**, trike / systemd / VCS helpers. |
+| **`packages/`** | Colcon-ready ROS 2 add-ons: **`radio_vio`** (SDR / ADS-B / landmark VO), **`laser_ranger`**, **`spectrometery_ros2`**. See [ROS 2 instrument packages](#ros-2-instrument-packages). |
 
 ## ROS 2 instrument packages
 
@@ -139,9 +138,21 @@ These packages live under **`packages/`** and use the same ROS 2 distro as the r
 ```bash
 cd ~/earth-rover
 source /opt/ros/humble/setup.bash
-colcon build --symlink-install --paths packages/laser_ranger packages/spectrometery_ros2
+colcon build --symlink-install --paths packages/radio_vio packages/laser_ranger packages/spectrometery_ros2
 source install/setup.bash
 ```
+
+### `radio_vio`
+
+HydraSDR and RTL-SDR drivers, ADS-B decoders (`dump1090` / IQ), aircraft **state-vector** fusion with MAVROS, 2D / glide-slope plot image publishers, and **landmark** visual-odometry plot nodes. Typical commands (after `source install/setup.bash`):
+
+```bash
+ros2 launch radio_vio rtl_adsb.launch.py
+ros2 launch radio_vio adsb_aircraft_state_vectors.launch.py
+ros2 launch radio_vio landmark_vo_plot_2d.launch.py estimated_position_topic:=/adsb/rtl_adsb_decoder_node/estimated_position
+```
+
+Depends on **`rtlsdr_ros2`** for the optional RTL node inside `sdr.launch.py`; install **`python3-numpy`**, **`pyModeS`**, and SDR hardware helpers as described in `packages/radio_vio/scripts/*/install_*.sh`.
 
 ### `laser_ranger`
 
@@ -328,7 +339,7 @@ git pull --recurse-submodules
 
 # deepgis_vehicles ROS2 Package
 
-ROS2 package for connecting with Pixhawk PX4 autopilot using MAVROS2. Launch files for the Earth Rover stack (vehicle interface, full system, SDR, ADS-B) live in this repository under **launch/**; they expect the `deepgis_vehicles` package to be built in your ROS 2 workspace (e.g. `~/ros2_ws`).
+ROS2 package for connecting with Pixhawk PX4 autopilot using MAVROS2. **Vehicle** launch files (`vehicle_interface`, `earth_rover`, `full_system`, `deepgis_telemetry`) live under **launch/** at the repo root and are installed with **`deepgis_vehicles`**. The **SDR / ADS-B / radio–VIO** stack is a separate **`radio_vio`** package under **packages/radio_vio/** — build both in your ROS 2 workspace (e.g. `~/ros2_ws`).
 
 ## Overview
 
