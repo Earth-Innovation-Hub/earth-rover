@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import rclpy
 from rclpy.node import Node
@@ -9,14 +9,27 @@ import numpy as np
 class MinimalPublisher(Node):
 
     def __init__(self):
-        super().__init__('minimal_publisher')
-        self.publisher_ = self.create_publisher(Float64MultiArray, 'spectrometer', 10)
+        super().__init__('spectrometer_data_publisher')
+        self.declare_parameter('topic', 'spectrometer')
+        self.declare_parameter('integration_time_micros', 500_000)
+        self.declare_parameter('publish_period_sec', 0.1)
+
+        topic = self.get_parameter('topic').get_parameter_value().string_value
+        self.integration_time = self.get_parameter(
+            'integration_time_micros').get_parameter_value().integer_value
+        timer_period = self.get_parameter(
+            'publish_period_sec').get_parameter_value().double_value
+        if timer_period <= 0.0:
+            timer_period = 0.1
+
+        self.publisher_ = self.create_publisher(Float64MultiArray, topic, 10)
         self.spec = sb.Spectrometer.from_serial_number()
-        self.integration_time = 500000
         self.spec.integration_time_micros(self.integration_time)
-        timer_period = 0.1  # seconds
         self.timer = self.create_timer(timer_period, self.timer_callback)
-        self.i = 0
+
+        self.get_logger().info(
+            f'Spectrometer publisher: topic={topic!r}, integration={self.integration_time} µs, '
+            f'period={timer_period} s')
 
     def timer_callback(self):
         try:
