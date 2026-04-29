@@ -16,6 +16,8 @@ ROS2_WS          ?= $(HOME)/ros2_ws
 PKG              ?= deepgis_vehicles
 RADIO_PKG        ?= radio_vio
 EARTH_ROVER_HOME ?= $(CURDIR)
+# colcon does not see packages/ when invoked from ~/ros2_ws unless symlinked; this path fixes that.
+RADIO_PKG_SRC    ?= $(EARTH_ROVER_HOME)/packages/$(RADIO_PKG)
 STARTUP_DIR      ?= $(EARTH_ROVER_HOME)/scripts/startup
 
 PIXHAWK_DEVICE   ?= /dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0
@@ -119,16 +121,16 @@ rebuild:
 # ---- The dominant inner-loop launches ---------------------------------------
 
 build-radio:
-	cd $(ROS2_WS) && bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && colcon build --packages-select $(RADIO_PKG) && source install/setup.bash'
+	cd $(ROS2_WS) && bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && colcon build --packages-select $(RADIO_PKG) --paths $(RADIO_PKG_SRC) && source install/setup.bash'
 
 landmark-vo:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) landmark_vo_plot_2d.launch.py estimated_position_topic:=/adsb/rtl_adsb_decoder_node/estimated_position'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) --paths $(RADIO_PKG_SRC) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) landmark_vo_plot_2d.launch.py estimated_position_topic:=/adsb/rtl_adsb_decoder_node/estimated_position'
 
 landmark-vo-fisheye:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) landmark_vo_plot_fisheye.launch.py'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) --paths $(RADIO_PKG_SRC) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) landmark_vo_plot_fisheye.launch.py'
 
 rtl-adsb:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) rtl_adsb.launch.py'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) --paths $(RADIO_PKG_SRC) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) rtl_adsb.launch.py'
 
 adsb-state:
 	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) adsb_aircraft_state_vectors.launch.py'
