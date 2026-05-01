@@ -56,7 +56,6 @@ install(DIRECTORY config
 
 # Install scripts
 install(PROGRAMS 
-  scripts/connect_pixhawk.sh
   scripts/test_gps_publisher.py
   scripts/deepgis_telemetry_publisher.py
   DESTINATION lib/${PROJECT_NAME}

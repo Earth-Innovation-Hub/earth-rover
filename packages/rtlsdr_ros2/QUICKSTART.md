@@ -4,12 +4,6 @@
 
 ### 1. Install Dependencies
 ```bash
-cd ~/ros2_ws/src/rtlsdr_ros2
-./install_dependencies.sh
-```
-
-Or manually:
-```bash
 # System packages
 sudo apt-get install rtl-sdr librtlsdr-dev
 
@@ -88,7 +82,7 @@ ros2 topic echo /rtlsdr/spectrum --field peak_frequency
 - Test: `rtl_test`
 
 **"Permission denied"**
-- Rerun: `./install_dependencies.sh`
+- Reinstall RTL-SDR udev rules for your device
 - Unplug and replug device
 
 **No data**

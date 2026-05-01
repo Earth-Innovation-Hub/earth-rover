@@ -2,36 +2,26 @@
 
 ## Quick Start
 
-### Method 1: Using the helper script (easiest)
-
-```bash
-# Auto-detect and connect (uses default baud rate 57600)
-ros2 run deepgis-vehicles connect_pixhawk.sh
-
-# Or specify baud rate
-ros2 run deepgis-vehicles connect_pixhawk.sh 921600
-```
-
-### Method 2: Manual launch with serial-by-id (recommended)
+### Method 1: Manual launch with serial-by-id (recommended)
 
 ```bash
 # Find your Pixhawk device
 ls -la /dev/serial/by-id/
 
 # Launch with the device path (replace with your actual device)
-ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="/dev/serial/by-id/usb-3D_Robotics_PX4_FMU_v2.x_0-if00:57600"
 ```
 
-### Method 3: Using direct device path
+### Method 2: Using direct device path
 
 ```bash
 # For /dev/ttyACM0
-ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="/dev/ttyACM0:57600"
 
 # For /dev/ttyUSB0
-ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="/dev/ttyUSB0:57600"
 ```
 
@@ -107,7 +97,7 @@ Based on your system, your Pixhawk is at:
 
 Quick connect command:
 ```bash
-ros2 launch deepgis-vehicles vehicle_interface.launch.py \
+ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="/dev/serial/by-id/usb-3D_Robotics_PX4_FMU_v2.x_0-if00:57600"
 ```
 

@@ -5,13 +5,12 @@
 # Quick start:
 #   make help           - list all targets
 #   make landmark-vo    - the dominant inner-loop (build + source + launch)
-#   make trike-up       - start the full trike stack
 #   make vcs-up         - start the VCS triplet (rosbridge + web_video_server + Django)
 #
 # Override:
-#   ROS_DISTRO=humble  ROS2_WS=$$HOME/ros2_ws  PKG=deepgis_vehicles
+#   ROS_DISTRO=jazzy  ROS2_WS=$$HOME/ros2_ws  PKG=deepgis_vehicles
 
-ROS_DISTRO       ?= humble
+ROS_DISTRO       ?= jazzy
 ROS2_WS          ?= $(HOME)/ros2_ws
 PKG              ?= deepgis_vehicles
 RADIO_PKG        ?= radio_vio
@@ -32,12 +31,11 @@ WITH_ROS = bash -c 'set -e; \
     $(CMD)'
 
 .PHONY: help build build-radio rebuild build-all source \
-        landmark-vo landmark-vo-fisheye rtl-adsb adsb-state adsb-glide sdr \
-        mavros mavros-bg \
+        landmark-vo landmark-vo-fisheye radio-stack rtl-adsb adsb-state adsb-glide sdr \
+        system-launch mavros mavros-bg \
         gh-cam meta-cam velo rs-cam spinnaker-left spinnaker-right \
         rosbridge web-video vcs-runserver \
         vcs-up vcs-down vcs-status \
-        trike-up trike-down trike-status trike-minimal \
         units-install units-list units-tail \
         mission-up mission-down mission-status mission-tail \
         ui-up ui-down ui-status \
@@ -54,14 +52,16 @@ help:
 	@printf "\n"
 	@printf "  landmark-vo        - build $(RADIO_PKG) + source + landmark_vo_plot_2d.launch.py\n"
 	@printf "  landmark-vo-fisheye - build $(RADIO_PKG) + source + landmark_vo_plot_fisheye.launch.py\n"
+	@printf "  radio-stack         - build $(RADIO_PKG) + source + radio_stack.launch.py PRESET=full|plots|vio|state|decoder\n"
 	@printf "  rtl-adsb           - build $(RADIO_PKG) + source + rtl_adsb.launch.py\n"
 	@printf "  adsb-state         - adsb_aircraft_state_vectors.launch.py ($(RADIO_PKG))\n"
 	@printf "  adsb-glide         - adsb_state_vectors_plot_glide.launch.py ($(RADIO_PKG))\n"
 	@printf "  sdr                - sdr.launch.py ($(RADIO_PKG))\n"
 	@printf "\n"
+	@printf "  system-launch      - sequenced MAVROS -> radio -> cameras -> spectrometer\n"
 	@printf "  mavros             - mavros px4.launch (FCU+GCS from PIXHAWK_*/GCS_URL vars)\n"
 	@printf "  mavros-bg          - same, in background via systemd --user\n"
-	@printf "  gh-cam             - launch_grasshopper.sh\n"
+	@printf "  gh-cam             - Grasshopper stereo cameras\n"
 	@printf "  meta-cam           - metavision_driver\n"
 	@printf "  velo               - velodyne VLP16\n"
 	@printf "  rs-cam             - realsense2_camera\n"
@@ -71,9 +71,6 @@ help:
 	@printf "  web-video          - web_video_server\n"
 	@printf "  vcs-runserver      - Django dev server (runserver 0.0.0.0:8000)\n"
 	@printf "  vcs-up / vcs-down / vcs-status - bring the VCS triplet up/down\n"
-	@printf "\n"
-	@printf "  trike-up / trike-down / trike-status - full trike stack\n"
-	@printf "  trike-minimal      - minimal: mavros + rosbridge + web_video_server\n"
 	@printf "\n"
 	@printf "  units-install      - install ~/.config/systemd/user/er-*.service units\n"
 	@printf "  units-list         - systemctl --user list-units 'er-*'\n"
@@ -129,6 +126,9 @@ landmark-vo:
 landmark-vo-fisheye:
 	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) --paths $(RADIO_PKG_SRC) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) landmark_vo_plot_fisheye.launch.py'
 
+radio-stack:
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) --paths $(RADIO_PKG_SRC) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) radio_stack.launch.py preset:=$(if $(PRESET),$(PRESET),full)'
+
 rtl-adsb:
 	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && cd $(ROS2_WS) && colcon build --packages-select $(RADIO_PKG) --paths $(RADIO_PKG_SRC) && source install/setup.bash && exec ros2 launch $(RADIO_PKG) rtl_adsb.launch.py'
 
@@ -143,6 +143,10 @@ sdr:
 
 # ---- MAVROS -----------------------------------------------------------------
 
+system-launch:
+	$(eval CMD := exec ros2 launch $(PKG) earth_rover_system.launch.py fcu_url:="$(PIXHAWK_DEVICE):$(PIXHAWK_BAUD)" gcs_url:="$(GCS_URL)")
+	$(WITH_ROS)
+
 mavros:
 	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && [ -f $(ROS2_WS)/install/setup.bash ] && source $(ROS2_WS)/install/setup.bash; \
 		exec ros2 launch mavros px4.launch fcu_url:="$(PIXHAWK_DEVICE):$(PIXHAWK_BAUD)" gcs_url:="$(GCS_URL)"'
@@ -154,7 +158,8 @@ mavros-bg:
 # ---- Cameras / sensors -------------------------------------------------------
 
 gh-cam:
-	cd $(ROS2_WS) && exec ./launch_grasshopper.sh
+	$(eval CMD := exec ros2 launch spinnaker_camera_driver grasshopper_stereo_min.launch.py left_serial:=22312692 right_serial:=22312674 parameter_file:=grasshopper.yaml)
+	$(WITH_ROS)
 
 meta-cam:
 	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && exec ros2 launch metavision_driver driver_node.launch.py'
@@ -190,20 +195,6 @@ vcs-down:
 
 vcs-status:
 	$(STARTUP_DIR)/vcs_status.sh
-
-# ---- Trike stack -------------------------------------------------------------
-
-trike-up:
-	$(STARTUP_DIR)/run_trike_stack.sh
-
-trike-down:
-	$(STARTUP_DIR)/stop_trike_stack.sh
-
-trike-status:
-	$(STARTUP_DIR)/check_status.sh
-
-trike-minimal:
-	$(STARTUP_DIR)/run_minimal_stack.sh
 
 # ---- systemd user units ------------------------------------------------------
 

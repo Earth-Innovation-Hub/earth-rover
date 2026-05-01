@@ -439,7 +439,7 @@ def launch_setup(context, *args, **kwargs):
     if enable_sdr:
         try:
             hydra_sdr_node = Node(
-                package='deepgis_vehicles',
+                package='radio_vio',
                 executable='hydra_sdr_node.py',
                 name='hydra_sdr_node',
                 namespace='hydra_sdr',

@@ -38,8 +38,6 @@ rtlsdr_ros2/
 │
 ├── resource/                         # ROS2 resource files
 │   └── rtlsdr_ros2
-│
-└── install_dependencies.sh           # Dependency installer script
 
 
 NODES
@@ -92,7 +90,8 @@ FEATURES
 QUICK START
 -----------
 1. Install dependencies:
-   ./install_dependencies.sh
+   sudo apt-get install rtl-sdr librtlsdr-dev
+   pip3 install pyrtlsdr numpy
 
 2. Build package:
    cd ~/ros2_ws

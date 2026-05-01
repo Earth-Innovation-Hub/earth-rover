@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-Single-stack launcher for RTL ADS-B, aircraft state vectors, and landmark VO plot.
+Single-stack launcher for RTL ADS-B, aircraft state vectors, plots, and VIO.
 
 Use one launch argument, ``preset``, to choose which pieces start:
 
   decoder
       ``rtl_adsb.launch.py`` only (RTL-SDR + decoder).
-  decoder_state_vectors
+  state
       Adds ``adsb_aircraft_state_vectors`` (needs MAVROS for meaningful framing).
-  decoder_landmark
-      Adds ``landmark_vo_plot_2d`` (2D VO / traffic overlay plot).
+  plots
+      Adds state vectors plus ADS-B 2D and glide image plots.
+  vio
+      Adds state vectors plus landmark VO 2D/fisheye visualizations.
   full
-      ADS-B base plus state vectors and landmark plot (default).
+      ADS-B base, state vectors, ADS-B plots, and landmark VO plots (default).
 
   The RTL/ADS-B base always starts; ``preset`` only selects extra nodes.
 
@@ -20,6 +22,10 @@ Examples:
   ros2 launch radio_vio radio_stack.launch.py
   ros2 launch radio_vio radio_stack.launch.py preset:=decoder
   ros2 launch radio_vio radio_stack.launch.py preset:=full gain:=42.0 decoder_mode:=iq
+
+Legacy preset aliases still accepted:
+  decoder_state_vectors -> state
+  decoder_landmark      -> vio
 """
 
 import os
@@ -41,8 +47,8 @@ def generate_launch_description():
         'preset',
         default_value='full',
         description=(
-            'Stack preset: decoder | decoder_state_vectors | '
-            'decoder_landmark | full'
+            'Stack preset: decoder | state | plots | vio | full '
+            '(aliases: decoder_state_vectors, decoder_landmark)'
         ),
     )
 
@@ -80,20 +86,60 @@ def generate_launch_description():
                 [
                     "'",
                     preset,
-                    "' in ('decoder_state_vectors', 'full')",
+                    "' in ('state', 'plots', 'vio', 'full', "
+                    "'decoder_state_vectors', 'decoder_landmark')",
                 ]
             )
         ),
     )
 
-    include_landmark = IncludeLaunchDescription(
+    include_plot_2d = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(_pkg_launch('adsb_state_vectors_plot_2d.launch.py')),
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    preset,
+                    "' in ('plots', 'full')",
+                ]
+            )
+        ),
+    )
+
+    include_glide = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(_pkg_launch('adsb_state_vectors_plot_glide.launch.py')),
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    preset,
+                    "' in ('plots', 'full')",
+                ]
+            )
+        ),
+    )
+
+    include_landmark_2d = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(_pkg_launch('landmark_vo_plot_2d.launch.py')),
         condition=IfCondition(
             PythonExpression(
                 [
                     "'",
                     preset,
-                    "' in ('decoder_landmark', 'full')",
+                    "' in ('vio', 'full', 'decoder_landmark')",
+                ]
+            )
+        ),
+    )
+
+    include_landmark_fisheye = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(_pkg_launch('landmark_vo_plot_fisheye.launch.py')),
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    preset,
+                    "' in ('vio', 'full')",
                 ]
             )
         ),
@@ -107,6 +153,9 @@ def generate_launch_description():
             device_index_arg,
             include_rtl,
             include_vectors,
-            include_landmark,
+            include_plot_2d,
+            include_glide,
+            include_landmark_2d,
+            include_landmark_fisheye,
         ]
     )

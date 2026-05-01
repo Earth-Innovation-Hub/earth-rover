@@ -26,7 +26,8 @@ def generate_launch_description():
                 'preset',
                 default_value='full',
                 description=(
-                    'decoder | decoder_state_vectors | decoder_landmark | full'
+                    'decoder | state | plots | vio | full '
+                    '(aliases: decoder_state_vectors, decoder_landmark)'
                 ),
             ),
             DeclareLaunchArgument('gain', default_value='-1.0'),
