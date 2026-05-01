@@ -119,40 +119,136 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 
 | Path | Description |
 |------|-------------|
-| **`src/`** | C++ source for the `deepgis_vehicles` ROS 2 node (`vehicle_interface_node.cpp`) — the MAVROS2 bridge to Pixhawk PX4. |
+| **`src/`** | C++ source for the `deepgis_vehicles` ROS 2 vehicle interface node. |
 | **`include/`** | Public headers for the `deepgis_vehicles` C++ node. |
-| **`launch/`** | ROS 2 launch files for the **vehicle / MAVROS** stack (`vehicle_interface`, `earth_rover`, `full_system`, `deepgis_telemetry`). Built with the **`deepgis_vehicles`** package at the repo root. |
-| **`packages/radio_vio/`** | **SDR / ADS-B / radio–VIO** stack: HydraSDR + RTL-SDR nodes, ADS-B decoders, aircraft state vectors, glide/2D plotters, landmark VO image publishers. Launch with `ros2 launch radio_vio …` after `colcon build --packages-select radio_vio`. |
-| **`scripts/`** | Python tools in the **vehicle** tree: DeepGIS telemetry / GPS publishers, rosbag injector, tests, Pixhawk helper, **`scripts/startup/`** mission glue. SDR / ADS-B / landmark-VO executables live under **`packages/radio_vio/scripts/`**. |
-| **`scripts/startup/`** | ROS 2 mission-unit helpers, kiosk/archive helpers, and notes for the next sequenced launcher. See [`scripts/startup/README.md`](scripts/startup/README.md). |
+| **`launch/`** | ROS 2 launch files installed by `deepgis_vehicles`, including the current sequenced system launch. |
+| **`packages/radio_vio/`** | SDR / ADS-B / radio-VIO stack: RTL-SDR/HydraSDR helpers, aircraft state-vector estimation, plot publishers, and landmark VO visualizations. |
+| **`packages/rtlsdr_ros2/`** | RTL-SDR ROS 2 reader, spectrum messages, and support nodes used by `radio_vio`. |
+| **`packages/laser_ranger/`** | USB serial laser ranger ROS 2 package. |
+| **`packages/spectrometery_ros2/`** | Ocean Optics / SeaBreeze spectrometer publisher and plot-image node. |
+| **`scripts/`** | Vehicle-side helper scripts. SDR / ADS-B / landmark-VO executables live under `packages/radio_vio/scripts/`. |
+| **`scripts/startup/`** | Current `systemd --user` unit generator, kiosk helper, VCS stop/status helpers, and manual archive service files. Legacy trike startup scripts have been removed. |
 | **`vehicle_control_station/`** | Django web app for real-time camera feeds, GPS/map, LiDAR, spectrometer, avionics gauges, and ROS recording. See [`vehicle_control_station/README.md`](vehicle_control_station/README.md). |
-| **`config/`** | YAML and RViz configurations for MAVROS, sensors (RealSense, Grasshopper IDs), DeepGIS telemetry. ADS-B / landmark-VO RViz/YAML configs ship with **`radio_vio`**. |
-| **`kernelcal/`** | Git submodule — [`darknight-007/kernelcal`](https://github.com/darknight-007/kernelcal): kernel-dynamics / Maximum-Caliber library (companion to the kernel dynamics paper series). Used for spectral analysis and adaptive sampling experiments tied to the rover's environmental monitoring stack. |
-| **`Makefile`** | Developer shortcuts (`make help`): vehicle **`deepgis_vehicles`**, radio **`radio_vio`**, trike / systemd / VCS helpers. |
-| **`packages/`** | Colcon-ready ROS 2 add-ons: **`radio_vio`** (SDR / ADS-B / landmark VO), **`laser_ranger`**, **`spectrometery_ros2`**. See [ROS 2 instrument packages](#ros-2-instrument-packages). |
+| **`config/`** | YAML and RViz configurations for MAVROS, vehicle sensors, and telemetry. |
+| **`external/deepgis_vision/`** | Git submodule for Grasshopper stereo vision / AI perception launch integration. |
+| **`kernelcal/`** | Git submodule for kernel-dynamics / Maximum-Caliber analysis experiments. |
+| **`Makefile`** | Developer/operator shortcuts. Run `make help` for the current target list. |
 
-## ROS 2 instrument packages
+## Current ROS 2 Stack
 
-These packages live under **`packages/`** and use the same ROS 2 distro as the rest of the stack (tested on **Humble**). From the repo root:
+The working runtime is ROS 2 **Jazzy**. The repo root builds the `deepgis_vehicles`
+package, while the instrument and radio packages live under `packages/`.
+
+From this checkout:
 
 ```bash
 cd ~/earth-rover
-source /opt/ros/humble/setup.bash
-colcon build --symlink-install --paths packages/radio_vio packages/laser_ranger packages/spectrometery_ros2
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install \
+  --packages-select deepgis_vehicles radio_vio rtlsdr_ros2 laser_ranger spectrometery_ros2
 source install/setup.bash
 ```
 
+If you are building from `~/ros2_ws`, include the package paths explicitly or
+symlink this repository's packages into that workspace.
+
+```bash
+cd ~/ros2_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install \
+  --packages-select radio_vio rtlsdr_ros2 \
+  --paths ~/earth-rover/packages/radio_vio ~/earth-rover/packages/rtlsdr_ros2
+source install/setup.bash
+```
+
+The convenience targets in `Makefile` assume `ROS_DISTRO=jazzy`,
+`ROS2_WS=~/ros2_ws`, and the current checkout as `EARTH_ROVER_HOME`. Override
+those variables on the command line when needed:
+
+```bash
+make info
+make build-radio
+make radio-stack PRESET=full
+```
+
+## Primary Bring-Up
+
+The current all-in-one ROS launch entry point is:
+
+```bash
+ros2 launch deepgis_vehicles earth_rover_system.launch.py
+```
+
+It starts the rover in this order:
+
+1. MAVROS / PX4 bridge
+2. `radio_vio` RTL-SDR ADS-B stack
+3. Grasshopper stereo cameras, with optional RealSense
+4. Spectrometer publisher and plot image
+
+Use `--show-args` to inspect stage toggles, serial numbers, delays, and sensor
+parameters:
+
+```bash
+ros2 launch deepgis_vehicles earth_rover_system.launch.py --show-args
+```
+
+Common examples:
+
+```bash
+# Field default using Makefile Pixhawk and GCS variables
+make system-launch
+
+# Bring up the system without cameras
+ros2 launch deepgis_vehicles earth_rover_system.launch.py enable_grasshopper:=false
+
+# Decoder only, no plots or landmark VO
+ros2 launch deepgis_vehicles earth_rover_system.launch.py radio_preset:=decoder
+
+# Tune camera serials and per-camera YAML/calibration
+ros2 launch deepgis_vehicles earth_rover_system.launch.py \
+  grasshopper_left_serial:=22312692 \
+  grasshopper_right_serial:=22312674 \
+  grasshopper_left_parameter_file:=grasshopper_left.yaml \
+  grasshopper_right_parameter_file:=grasshopper_right.yaml \
+  grasshopper_left_camera_info_url:=/path/to/left.yaml \
+  grasshopper_right_camera_info_url:=/path/to/right.yaml
+```
+
+The Grasshopper camera launch itself lives in the FLIR driver workspace as
+`spinnaker_camera_driver/launch/grasshopper_stereo_min.launch.py`.
+
+## ROS 2 instrument packages
+
+These packages live under `packages/` and use the same ROS 2 distro as the rest
+of the stack.
+
 ### `radio_vio`
 
-HydraSDR and RTL-SDR drivers, ADS-B decoders (`dump1090` / IQ), aircraft **state-vector** fusion with MAVROS, 2D / glide-slope plot image publishers, and **landmark** visual-odometry plot nodes. Typical commands (after `source install/setup.bash`):
+`radio_vio` contains the SDR / ADS-B / aircraft-state-vector / landmark-VO
+launches. The consolidated launcher is:
+
+```bash
+ros2 launch radio_vio radio_stack.launch.py preset:=full
+```
+
+Presets:
+
+- `decoder`: RTL-SDR + ADS-B decoder only.
+- `state`: decoder plus ADS-B aircraft state vectors.
+- `plots`: state vectors plus ADS-B 2D and glide plot images.
+- `vio`: state vectors plus landmark VO 2D/fisheye visualizations.
+- `full`: ADS-B base, state vectors, ADS-B plots, and landmark VO plots.
 
 ```bash
 ros2 launch radio_vio rtl_adsb.launch.py
 ros2 launch radio_vio adsb_aircraft_state_vectors.launch.py
 ros2 launch radio_vio landmark_vo_plot_2d.launch.py estimated_position_topic:=/adsb/rtl_adsb_decoder_node/estimated_position
+make radio-stack PRESET=plots
 ```
 
-Depends on **`rtlsdr_ros2`** for the optional RTL node inside `sdr.launch.py`; install **`python3-numpy`**, **`pyModeS`**, and SDR hardware helpers as described in `packages/radio_vio/scripts/*/install_*.sh`.
+Install Python and SDR hardware dependencies as described by the helper scripts
+under `packages/radio_vio/scripts/`.
 
 ### `laser_ranger`
 
@@ -194,111 +290,68 @@ Launch arguments:
 
 Dependencies: **`python3-numpy`**, **`python3-matplotlib`**, **`python3-seabreeze`** / SeaBreeze drivers for the spectrometer hardware.
 
-## Mission Launch Sequence
+## Systemd User Units
 
-The rover's bring-up is expressed declaratively in
-[`scripts/startup/mission.yaml`](scripts/startup/mission.yaml) and compiled to
-a graph of `systemd --user` services that bring the stack up in topological
-tier order. Every service in the manifest becomes one `er-<id>.service` unit;
-the aggregating `er-mission.target` pulls them all up in the correct sequence.
+Nothing in this repo should auto-start at boot. The remaining `systemd --user`
+units are an explicit operator path for launching individual services, the
+mission target, the UI layer, or the archive job.
 
-> **Nothing in this graph auto-starts at boot or login.** Auto-enable was
-> deliberately removed so every launch is an explicit operator decision
-> (due-diligence per launch). Bring the stack up manually via `make
-> mission-up`, individual `systemctl --user start er-<unit>.service`
-> commands, or the Django mission console.
-
-```mermaid
-flowchart TB
-    classDef tier0 fill:#1f2937,stroke:#374151,color:#9ca3af
-    classDef tier1 fill:#1e3a8a,stroke:#1d4ed8,color:#dbeafe
-    classDef tier2 fill:#5b21b6,stroke:#7c3aed,color:#ede9fe
-    classDef tier3 fill:#065f46,stroke:#10b981,color:#d1fae5
-    classDef tier4 fill:#92400e,stroke:#d97706,color:#fef3c7
-    classDef tier5 fill:#9d174d,stroke:#db2777,color:#fce7f3
-
-    subgraph T0["Tier 0 — Hardware Detection"]
-        hw_pixhawk[hw-pixhawk]:::tier0
-        hw_rtlsdr[hw-rtlsdr]:::tier0
-        hw_cameras[hw-cameras]:::tier0
-    end
-    subgraph T1["Tier 1 — Sensor / I-O Drivers"]
-        mavros[mavros]:::tier1
-        rtl_adsb[rtl-adsb]:::tier1
-        grasshopper[grasshopper]:::tier1
-        realsense[realsense]:::tier1
-        metavision[metavision]:::tier1
-        velodyne[velodyne]:::tier1
-        spectrometer[spectrometer]:::tier1
-    end
-    subgraph T2["Tier 2 — State Estimators"]
-        adsb_state[adsb-state]:::tier2
-        adsb_plot_2d[adsb-plot-2d]:::tier2
-        adsb_glide[adsb-glide]:::tier2
-        landmark_vo[landmark-vo-fisheye]:::tier2
-        deepgis_gps[deepgis-gps]:::tier2
-    end
-    subgraph T3["Tier 3 — Web Bridge"]
-        rosbridge[rosbridge :9090]:::tier3
-        web_video[web-video :8080]:::tier3
-    end
-    subgraph T4["Tier 4 — Application"]
-        vcs["vcs (Django :8000)"]:::tier4
-    end
-    subgraph T5["Tier 5 — User Interface"]
-        kiosk["kiosk (Firefox)"]:::tier5
-    end
-
-    hw_pixhawk --> mavros
-    hw_rtlsdr  --> rtl_adsb
-    hw_cameras --> grasshopper
-    hw_cameras --> realsense
-    hw_cameras --> metavision
-    rtl_adsb   --> adsb_state
-    mavros     --> adsb_state
-    adsb_state --> adsb_plot_2d
-    adsb_state --> adsb_glide
-    realsense  --> landmark_vo
-    mavros     --> deepgis_gps
-    mavros     --> rosbridge
-    rosbridge  --> vcs
-    web_video  --> vcs
-    vcs        --> kiosk
-```
-
-The same dependency graph is rendered live (with running / starting / failed /
-stopped state for every unit, refreshed every 3 s) by the VCS at
-**[http://localhost:8000/mission/](http://localhost:8000/mission/)**, sourced
-from `systemctl --user show er-*.service`.
-
-Install the unit files (no auto-enable; the install script only writes
-`~/.config/systemd/user/er-*.service`):
+Install or refresh the unit files:
 
 ```bash
-cd scripts/startup
+cd ~/earth-rover/scripts/startup
 ./install_user_units.sh
-loginctl enable-linger $USER     # keep manually-started services alive across logout
 ```
 
-Then bring the stack up by hand. The typical flow is to start the web
-frontend first so the Django mission console at `http://localhost:8000/mission/`
-can act as a per-service launch panel:
+Manual service examples:
 
 ```bash
-make ui-up           # rosbridge + web_video + vcs + kiosk
-# decide what to run today, then either:
-systemctl --user start er-mavros.service          # one at a time, or
-make mission-up                                   # the whole graph
-
-make mission-status  # one-line state for every er-* unit
-make mission-down    # everything off
+systemctl --user start er-mavros.service
+systemctl --user start er-grasshopper.service
+systemctl --user start er-rtl-adsb.service er-adsb-state.service
 ```
 
-If you ever want the boot-time / graphical-login auto-start back, see
-[`scripts/startup/README.md`](scripts/startup/README.md#re-enable-auto-start-only-if-you-really-want-the-old-behavior-back).
+Mission target helpers:
 
-See [`scripts/startup/README.md`](scripts/startup/README.md) for the full
-walkthrough, customization, and troubleshooting.
+```bash
+make mission-up
+make mission-status
+make mission-down
+```
+
+UI and archive helpers:
+
+```bash
+make ui-up
+make ui-status
+make ui-down
+make archive-now
+make archive-status
+```
+
+See [`scripts/startup/README.md`](scripts/startup/README.md) for the current
+startup notes and the list of legacy scripts that were removed.
+
+## MAVROS / Pixhawk
+
+The main physical Pixhawk path on the rover is an FTDI serial-by-id link at
+921600 baud:
+
+```bash
+ros2 launch mavros px4.launch \
+  fcu_url:="/dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0:921600" \
+  gcs_url:="udp://192.168.1.7:14550"
+```
+
+For the `deepgis_vehicles` C++ bridge:
+
+```bash
+ros2 launch deepgis_vehicles vehicle_interface.launch.py \
+  fcu_url:="/dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0:921600"
+```
+
+See [`CONNECTION_GUIDE.md`](CONNECTION_GUIDE.md) for device discovery,
+permissions, and alternate baud/device paths.
 
 ## Documentation
 
@@ -308,11 +361,11 @@ Top-level docs tracked in this repo:
 - [`DEEPGIS_TELEMETRY_README.md`](DEEPGIS_TELEMETRY_README.md) — DeepGIS telemetry publisher (continuous geospatial uplink from the rover).
 - [`QUICK_START_TELEMETRY.md`](QUICK_START_TELEMETRY.md) — Quick-start guide for the DeepGIS telemetry stack.
 - [`API_COMPLIANCE_CHANGES.md`](API_COMPLIANCE_CHANGES.md) — DeepGIS API compliance change log.
-- [`scripts/startup/README.md`](scripts/startup/README.md) — Mission launch dependency chart, systemd `--user` units, kiosk autostart.
-- [`scripts/startup/mission.yaml`](scripts/startup/mission.yaml) — Declarative mission topology consumed by both the unit installer and the live VCS mission page.
+- [`scripts/startup/README.md`](scripts/startup/README.md) — Current startup notes, systemd `--user` units, kiosk helper, and removed legacy scripts.
 - [`vehicle_control_station/README.md`](vehicle_control_station/README.md) — Web-based vehicle control station.
 
-ADS-B receiver-position estimation, landmark visual odometry plotting, and state-estimation analyses are kept as design notes under `docs/` (intentionally untracked in version control).
+ADS-B receiver-position estimation, landmark visual odometry plotting, and
+state-estimation analyses are kept as design notes under `docs/` when present.
 
 ## Cloning
 
@@ -339,7 +392,10 @@ git pull --recurse-submodules
 
 # deepgis_vehicles ROS2 Package
 
-ROS2 package for connecting with Pixhawk PX4 autopilot using MAVROS2. **Vehicle** launch files (`vehicle_interface`, `earth_rover`, `full_system`, `deepgis_telemetry`) live under **launch/** at the repo root and are installed with **`deepgis_vehicles`**. The **SDR / ADS-B / radio–VIO** stack is a separate **`radio_vio`** package under **packages/radio_vio/** — build both in your ROS 2 workspace (e.g. `~/ros2_ws`).
+ROS 2 package for connecting with Pixhawk PX4 autopilot using MAVROS2. Vehicle
+launch files live under `launch/` at the repo root and are installed with
+`deepgis_vehicles`. The SDR / ADS-B / radio-VIO stack is the separate
+`radio_vio` package under `packages/radio_vio/`.
 
 ## Overview
 
@@ -353,7 +409,7 @@ This package provides a ROS2 interface to communicate with Pixhawk PX4 flight co
 
 ## Dependencies
 
-- ROS2 (Humble/Iron/Rolling)
+- ROS 2 Jazzy
 - MAVROS2 (`mavros`, `mavros_msgs`, `mavros_extras`)
 - Standard ROS2 packages: `rclcpp`, `geometry_msgs`, `sensor_msgs`, `nav_msgs`, `std_msgs`
 - TF2 for coordinate transformations
@@ -364,22 +420,9 @@ This package provides a ROS2 interface to communicate with Pixhawk PX4 flight co
 
 Before building this package, you need to install MAVROS2:
 
-**For ROS2 Humble (Ubuntu 22.04):**
 ```bash
 sudo apt update
-sudo apt install ros-humble-mavros ros-humble-mavros-extras ros-humble-mavros-msgs
-```
-
-**For ROS2 Iron (Ubuntu 22.04):**
-```bash
-sudo apt update
-sudo apt install ros-iron-mavros ros-iron-mavros-extras ros-iron-mavros-msgs
-```
-
-**For ROS2 Rolling (Ubuntu 22.04/24.04):**
-```bash
-sudo apt update
-sudo apt install ros-rolling-mavros ros-rolling-mavros-extras ros-rolling-mavros-msgs
+sudo apt install ros-jazzy-mavros ros-jazzy-mavros-extras ros-jazzy-mavros-msgs
 ```
 
 **Note:** If MAVROS2 packages are not available via apt, you may need to build them from source. See the [MAVROS2 GitHub repository](https://github.com/mavlink/mavros) for instructions.
@@ -395,14 +438,15 @@ sudo geographiclib-get-geoids egm96-5
 ## Building
 
 ```bash
-cd ~/ros2_ws
+cd ~/earth-rover
+source /opt/ros/jazzy/setup.bash
 colcon build --packages-select deepgis_vehicles
 source install/setup.bash
 ```
 
 ## Usage
 
-### Launch with PX4 SITL (Software In The Loop)
+### Launch with PX4 SITL
 
 For testing with PX4 SITL:
 
@@ -413,45 +457,39 @@ ros2 launch deepgis_vehicles vehicle_interface.launch.py \
 
 ### Launch with Physical Pixhawk
 
-**Recommended: Using serial-by-id (stable device identification)**
+Use serial-by-id paths when possible so USB port order does not change the
+connection URL.
 
-First, find your Pixhawk device:
 ```bash
 ls -la /dev/serial/by-id/
 ```
 
-Then launch with the serial-by-id path (recommended for stability):
+Current rover FTDI telemetry link:
+
 ```bash
 ros2 launch deepgis_vehicles vehicle_interface.launch.py \
-    fcu_url:="/dev/serial/by-id/usb-3D_Robotics_PX4_FMU_v2.x_0-if00:57600"
+    fcu_url:="/dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0:921600"
 ```
 
-**Alternative: Using direct device paths**
+Direct device paths also work for bench testing:
 
-For a Pixhawk connected via USB:
 ```bash
 ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="/dev/ttyUSB0:57600"
-```
 
-For a Pixhawk connected via ACM:
-```bash
 ros2 launch deepgis_vehicles vehicle_interface.launch.py \
     fcu_url:="/dev/ttyACM0:57600"
 ```
-
-**Note:** The serial-by-id method (`/dev/serial/by-id/...`) is recommended because it provides a stable path that doesn't change when the device is plugged into different USB ports.
 
 ### Launch Parameters
 
 - `fcu_url`: Connection URL to the flight controller
   - SITL: `udp://:14540@127.0.0.1:14557`
-  - Serial-by-id (recommended): `/dev/serial/by-id/usb-3D_Robotics_PX4_FMU_v2.x_0-if00:57600`
+  - Rover FTDI telemetry: `/dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0:921600`
   - USB: `/dev/ttyUSB0:57600`
   - ACM: `/dev/ttyACM0:57600`
   - TCP: `tcp://127.0.0.1:5760`
-  
-  **Baud rates:** Common baud rates for Pixhawk are 57600 (default), 921600 (high-speed), or 115200
+  - Baud rates: common values are 57600, 115200, and 921600
 - `gcs_url`: Ground Control Station URL (default: `udp://@127.0.0.1:14550`)
 - `tgt_system`: Target system ID (default: `1`)
 - `tgt_component`: Target component ID (default: `1`)
@@ -467,7 +505,6 @@ ros2 launch deepgis_vehicles vehicle_interface.launch.py \
 
 ### Published (to MAVROS2)
 
-- `/mavros/setpoint_position/local` - Position setpoint commands
 - `/mavros/setpoint_velocity/cmd_vel` - Velocity commands
 - `/mavros/setpoint_raw/local` - Raw position target
 
@@ -483,7 +520,7 @@ The node provides access to MAVROS2 services:
 - `/mavros/cmd/arming` - Arm/disarm the vehicle
 - `/mavros/set_mode` - Change flight mode
 
-## Example: Arming and Taking Off
+## Example: Arm and Publish a Rover Velocity Command
 
 ```bash
 # In one terminal, launch the interface
@@ -496,11 +533,9 @@ ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"
 ros2 service call /mavros/set_mode mavros_msgs/srv/SetMode \
     "{custom_mode: 'OFFBOARD'}"
 
-# Publish position setpoint (example: 5m altitude)
-ros2 topic pub /mavros/setpoint_position/local geometry_msgs/msg/PoseStamped \
-    "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: 'map'}, \
-     pose: {position: {x: 0.0, y: 0.0, z: 5.0}, \
-            orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}"
+# Publish a conservative forward velocity setpoint
+ros2 topic pub /mavros/setpoint_velocity/cmd_vel geometry_msgs/msg/TwistStamped \
+    "{twist: {linear: {x: 0.2, y: 0.0, z: 0.0}, angular: {z: 0.0}}}"
 ```
 
 ## Monitoring
@@ -519,7 +554,7 @@ Edit `config/mavros_config.yaml` to customize MAVROS2 parameters.
 
 ## Notes
 
-- Ensure MAVROS2 is installed: `sudo apt install ros-<distro>-mavros ros-<distro>-mavros-extras`
+- Ensure MAVROS2 is installed: `sudo apt install ros-jazzy-mavros ros-jazzy-mavros-extras`
 - For USB connections, you may need to add your user to the `dialout` group:
   ```bash
   sudo usermod -a -G dialout $USER
