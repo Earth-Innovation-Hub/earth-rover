@@ -215,8 +215,10 @@ ros2 launch deepgis_vehicles earth_rover_system.launch.py \
   grasshopper_right_camera_info_url:=/path/to/right.yaml
 ```
 
-The Grasshopper camera launch itself lives in the FLIR driver workspace as
-`spinnaker_camera_driver/launch/grasshopper_stereo_min.launch.py`.
+The Grasshopper cameras launch from the FLIR driver workspace as two
+single-camera launch files:
+`spinnaker_camera_driver/launch/grasshopper_left.launch.py` and
+`spinnaker_camera_driver/launch/grasshopper_right.launch.py`.
 
 ## ROS 2 instrument packages
 
@@ -340,7 +342,7 @@ The main physical Pixhawk path on the rover is an FTDI serial-by-id link at
 ```bash
 ros2 launch mavros px4.launch \
   fcu_url:="/dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0:921600" \
-  gcs_url:="udp://192.168.1.7:14550"
+  gcs_url:="udp://@192.168.0.6:14550"
 ```
 
 For the `deepgis_vehicles` C++ bridge:

@@ -21,7 +21,7 @@ STARTUP_DIR      ?= $(EARTH_ROVER_HOME)/scripts/startup
 
 PIXHAWK_DEVICE   ?= /dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0
 PIXHAWK_BAUD     ?= 921600
-GCS_URL          ?= udp://192.168.1.7:14550
+GCS_URL          ?= udp://@192.168.0.6:14550
 
 # Compose a single shell line that activates ROS env, then runs $(CMD).
 # Used so each recipe runs in one shell with the workspace sourced.
@@ -33,7 +33,8 @@ WITH_ROS = bash -c 'set -e; \
 .PHONY: help build build-radio rebuild build-all source \
         landmark-vo landmark-vo-fisheye radio-stack rtl-adsb adsb-state adsb-glide sdr \
         system-launch mavros mavros-bg \
-        gh-cam meta-cam velo rs-cam spinnaker-left spinnaker-right \
+        gh-cam-left gh-cam-right meta-cam velo rs-cam spinnaker-left spinnaker-right \
+        record-bag record-bag-mavros record-bag-stereo \
         rosbridge web-video vcs-runserver \
         vcs-up vcs-down vcs-status \
         units-install units-list units-tail \
@@ -157,8 +158,12 @@ mavros-bg:
 
 # ---- Cameras / sensors -------------------------------------------------------
 
-gh-cam:
-	$(eval CMD := exec ros2 launch spinnaker_camera_driver grasshopper_stereo_min.launch.py left_serial:=22312692 right_serial:=22312674 parameter_file:=grasshopper.yaml)
+gh-cam-left:
+	$(eval CMD := exec ros2 launch spinnaker_camera_driver grasshopper_left.launch.py serial:=22312692 parameter_file:=grasshopper.yaml)
+	$(WITH_ROS)
+
+gh-cam-right:
+	$(eval CMD := exec ros2 launch spinnaker_camera_driver grasshopper_right.launch.py serial:=22312674 parameter_file:=grasshopper.yaml)
 	$(WITH_ROS)
 
 meta-cam:
@@ -171,10 +176,43 @@ rs-cam:
 	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && exec ros2 launch realsense2_camera rs_launch.py'
 
 spinnaker-left:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && exec ros2 launch spinnaker_camera_driver driver_node.launch.py camera_name:=left'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && exec ros2 launch spinnaker_camera_driver grasshopper_left.launch.py'
 
 spinnaker-right:
-	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && exec ros2 launch spinnaker_camera_driver driver_node.launch.py serial:=22312674 camera_name:=right'
+	bash -c 'source /opt/ros/$(ROS_DISTRO)/setup.bash && exec ros2 launch spinnaker_camera_driver grasshopper_right.launch.py'
+
+# ---- rosbag recording --------------------------------------------------------
+# Wraps deepgis_vehicles/launch/record_bag.launch.py.  Override per-class flags
+# or any of the bag args via RECORD_ARGS, e.g.:
+#   make record-bag RECORD_ARGS="record_stereo_raw:=true compression_mode:=file"
+RECORD_ARGS ?=
+
+record-bag:
+	$(eval CMD := exec ros2 launch $(PKG) record_bag.launch.py $(RECORD_ARGS))
+	$(WITH_ROS)
+
+record-bag-mavros:
+	$(eval CMD := exec ros2 launch $(PKG) record_bag.launch.py \
+		record_stereo_compressed:=false \
+		record_stereo_raw:=false \
+		record_stereo_camera_info:=false \
+		record_spectrometer:=false \
+		record_laser:=false \
+		record_adsb:=false $(RECORD_ARGS))
+	$(WITH_ROS)
+
+record-bag-stereo:
+	$(eval CMD := exec ros2 launch $(PKG) record_bag.launch.py \
+		record_mavros_state:=false \
+		record_mavros_imu:=false \
+		record_mavros_local_position:=false \
+		record_mavros_global_position:=false \
+		record_mavros_gps_status:=false \
+		record_spectrometer:=false \
+		record_laser:=false \
+		record_adsb:=false \
+		record_diagnostics:=false $(RECORD_ARGS))
+	$(WITH_ROS)
 
 # ---- VCS triplet -------------------------------------------------------------
 

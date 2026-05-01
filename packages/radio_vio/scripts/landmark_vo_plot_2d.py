@@ -356,7 +356,9 @@ class LandmarkVOPlot2DNode(Node):
                                      for o in lst if isinstance(o, dict)]
 
     def _camera_info_cb(self, msg: CameraInfo):
-        if msg.k and len(msg.k) >= 6 and msg.k[0] != 0:
+        # msg.k is a fixed-size float64[9] (numpy array via rclpy), so a
+        # bare `if msg.k` raises "ambiguous truth value". Compare elements explicitly.
+        if msg.k is not None and len(msg.k) >= 6 and float(msg.k[0]) != 0.0:
             with self._lock:
                 self._cam_fx = msg.k[0]
                 self._cam_fy = msg.k[4]
