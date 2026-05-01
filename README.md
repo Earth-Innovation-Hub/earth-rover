@@ -129,7 +129,8 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 | **`scripts/`** | Vehicle-side helper scripts. SDR / ADS-B / landmark-VO executables live under `packages/radio_vio/scripts/`. |
 | **`scripts/startup/`** | Current `systemd --user` unit generator, kiosk helper, VCS stop/status helpers, and manual archive service files. Legacy trike startup scripts have been removed. |
 | **`vehicle_control_station/`** | Django web app for real-time camera feeds, GPS/map, LiDAR, spectrometer, avionics gauges, and ROS recording. See [`vehicle_control_station/README.md`](vehicle_control_station/README.md). |
-| **`config/`** | YAML and RViz configurations for MAVROS, vehicle sensors, and telemetry. |
+| **`config/`** | YAML and RViz configurations for MAVROS, vehicle sensors, telemetry, and the `earth_rover.perspective` rqt layout used by the system launch. |
+| **`docs/images/`** | Repo-tracked screenshots and diagrams (e.g. the rqt perspective view referenced from the bring-up section). |
 | **`external/deepgis_vision/`** | Git submodule for Grasshopper stereo vision / AI perception launch integration. |
 | **`kernelcal/`** | Git submodule for kernel-dynamics / Maximum-Caliber analysis experiments. |
 | **`Makefile`** | Developer/operator shortcuts. Run `make help` for the current target list. |
@@ -169,6 +170,16 @@ those variables on the command line when needed:
 make info
 make build-radio
 make radio-stack PRESET=full
+
+# Camera shortcuts (run each in its own terminal)
+make gh-cam-left
+make gh-cam-right
+
+# Rosbag recording
+make record-bag                          # default capture
+make record-bag-mavros                   # MAVROS + tf + diagnostics + adsb
+make record-bag-stereo                   # stereo only (compressed by default)
+make record-bag RECORD_ARGS="record_stereo_raw:=true compression_mode:=file"
 ```
 
 ## Primary Bring-Up
@@ -181,13 +192,20 @@ ros2 launch deepgis_vehicles earth_rover_system.launch.py
 
 It starts the rover in this order:
 
-1. MAVROS / PX4 bridge
-2. `radio_vio` RTL-SDR ADS-B stack
-3. Grasshopper stereo cameras, with optional RealSense
-4. Spectrometer publisher and plot image
+1. **MAVROS / PX4 bridge** (`fcu_url` defaults to the FTDI serial-by-id link).
+2. **`radio_vio`** ADS-B + landmark VO stack (`radio_preset` selects the sub-stack).
+3. **RTL-SDR standalone** spectrum analyzer (`enable_rtl_sdr` — **OFF by default**;
+   do not run alongside `radio_vio` on a single dongle).
+4. **Laser ranger** (USB serial, default device pinned to `/dev/serial/by-id/...`
+   so unplug/replug doesn't require a launch edit).
+5. **Grasshopper stereo cameras** — left and right launched as independent
+   single-camera nodes (default 15 Hz each, with per-side overrides).
+6. **Spectrometer** publisher and plot image.
+7. **rqt** on the host display, loaded with the
+   `config/earth_rover.perspective` ([`config/earth_rover.perspective`](config/earth_rover.perspective)).
 
-Use `--show-args` to inspect stage toggles, serial numbers, delays, and sensor
-parameters:
+Each stage has its own `enable_*` toggle and `*_delay_sec` so field tuning does
+not require editing the launch file. Use `--show-args` to inspect every option:
 
 ```bash
 ros2 launch deepgis_vehicles earth_rover_system.launch.py --show-args
@@ -199,11 +217,27 @@ Common examples:
 # Field default using Makefile Pixhawk and GCS variables
 make system-launch
 
-# Bring up the system without cameras
-ros2 launch deepgis_vehicles earth_rover_system.launch.py enable_grasshopper:=false
+# Headless run (no rqt GUI) without cameras
+ros2 launch deepgis_vehicles earth_rover_system.launch.py \
+  rqt_gui:=false enable_grasshopper:=false
 
 # Decoder only, no plots or landmark VO
 ros2 launch deepgis_vehicles earth_rover_system.launch.py radio_preset:=decoder
+
+# Standalone RTL-SDR on a second dongle (index 1) instead of radio_vio
+ros2 launch deepgis_vehicles earth_rover_system.launch.py \
+  enable_radio_vio:=false \
+  enable_rtl_sdr:=true rtl_sdr_device_index:=1
+
+# Override the laser by-id path (e.g. swapped FT230X unit)
+ros2 launch deepgis_vehicles earth_rover_system.launch.py \
+  laser_serial_device:=/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_<SERIAL>-if00-port0
+
+# Cameras at a different rate (or asymmetric rates per side)
+ros2 launch deepgis_vehicles earth_rover_system.launch.py \
+  grasshopper_frame_rate:=10.0
+ros2 launch deepgis_vehicles earth_rover_system.launch.py \
+  grasshopper_left_frame_rate:=20.0 grasshopper_right_frame_rate:=5.0
 
 # Tune camera serials and per-camera YAML/calibration
 ros2 launch deepgis_vehicles earth_rover_system.launch.py \
@@ -218,7 +252,77 @@ ros2 launch deepgis_vehicles earth_rover_system.launch.py \
 The Grasshopper cameras launch from the FLIR driver workspace as two
 single-camera launch files:
 `spinnaker_camera_driver/launch/grasshopper_left.launch.py` and
-`spinnaker_camera_driver/launch/grasshopper_right.launch.py`.
+`spinnaker_camera_driver/launch/grasshopper_right.launch.py`. Each exposes a
+`frame_rate` arg that forces `frame_rate_auto:=Off` and
+`frame_rate_enable:=True` so the requested rate actually takes effect on the
+sensor.
+
+### rqt GUI
+
+Stage 7 launches `rqt` on the operator's `$DISPLAY` and loads the canonical
+`earth_rover` perspective. The default layout shows the left and right
+Grasshopper image streams, the spectrometer plot image, and the
+`/laser_distance` time series:
+
+![rqt earth_rover perspective](docs/images/rqt_earth_rover_perspective.png)
+
+Skip the GUI on headless boots:
+
+```bash
+ros2 launch deepgis_vehicles earth_rover_system.launch.py rqt_gui:=false
+```
+
+Use a different perspective (basename in `config/`, relative path, or absolute
+path):
+
+```bash
+ros2 launch deepgis_vehicles earth_rover_system.launch.py \
+  rqt_perspective:=/home/jdas/earth-rover/perspectives/debug.perspective
+```
+
+The resolver searches, in order: an absolute path, the package share's
+`config/`, the package share root, and finally `$EARTH_ROVER_HOME/config/` and
+`$EARTH_ROVER_HOME/`.
+
+### Rosbag recording
+
+The trike topic set has its own gracefully-filtered recorder:
+
+```bash
+ros2 launch deepgis_vehicles record_bag.launch.py
+```
+
+Topics are grouped into classes (`mavros_state`, `mavros_imu`,
+`mavros_local_position`, `mavros_global_position`, `mavros_gps_status`,
+`stereo_raw`, `stereo_compressed`, `stereo_camera_info`, `spectrometer`,
+`laser`, `adsb`, `tf`, `diagnostics`). Each class is independently toggled
+via `record_<class>:=true|false` and `stereo_raw` is **off by default**
+because of bandwidth.
+
+By default the launcher scans live topics for `discovery_timeout_sec`
+seconds and records only the ones currently published — missing topics are
+logged and skipped per class so the bag still captures everything else
+instead of failing the launch. Use `wait_for_topics:=true` to pre-subscribe
+to topics that will appear later (e.g. cameras that come up after the
+recorder).
+
+```bash
+# Capture everything live, plus topics that come up later
+ros2 launch deepgis_vehicles record_bag.launch.py wait_for_topics:=true
+
+# Heavy capture: include raw stereo + zstd file compression + 2 GiB splits
+ros2 launch deepgis_vehicles record_bag.launch.py \
+  record_stereo_raw:=true \
+  compression_mode:=file compression_format:=zstd \
+  max_bag_size:=2147483648
+
+# MAVROS-only telemetry capture
+make record-bag-mavros
+```
+
+Bags land under `~/earth-rover-bags/<bag_name>/` (default `bag_name` is
+`earth_rover_<UTC_timestamp>`). Override with `bag_dir:=/data/missions
+bag_name:=field_test_2026_05_01`. See `--show-args` for the full knob list.
 
 ## ROS 2 instrument packages
 
@@ -254,16 +358,28 @@ under `packages/radio_vio/scripts/`.
 
 ### `laser_ranger`
 
-Reads a USB serial laser ranger (default device path is the FTDI by-id used on the trike) and publishes:
+Reads a USB serial laser ranger and publishes:
 
 - `std_msgs/String` — first whitespace-delimited token (`topic_raw`, default `serial_data`)
 - `std_msgs/Float64` — parsed numeric distance when the token is a float (`topic_distance`, default `laser_distance`)
 
+The system launch (`earth_rover_system.launch.py`) calls this stage by default
+with the trike's FTDI FT230X pinned via `/dev/serial/by-id/`, so unplug/replug
+and ttyUSB reordering against the Pixhawk no longer break startup. Standalone
+invocation:
+
 ```bash
 ros2 run laser_ranger laser_ranger_node
-# or
-ros2 launch laser_ranger laser_ranger.launch.py serial_device:=/dev/ttyUSB0
+# Pinned by-id path (preferred, survives reboots / replug):
+ros2 launch laser_ranger laser_ranger.launch.py \
+  serial_device:=/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DO01SSV5-if00-port0
+# Direct tty path (bench testing only):
+ros2 launch laser_ranger laser_ranger.launch.py serial_device:=/dev/ttyUSB1
 ```
+
+Find the right by-id path for your unit with `ls /dev/serial/by-id/`; pass it
+to the system launch via `laser_serial_device:=<path>` (or set as the new
+default in `earth_rover_system.launch.py`).
 
 Python dependency: **`python3-serial`** (`pip install pyserial` if not from apt).
 
