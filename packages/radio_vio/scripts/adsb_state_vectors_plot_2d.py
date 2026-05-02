@@ -35,6 +35,7 @@ def _import_matplotlib():
 
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
@@ -188,12 +189,20 @@ class StateVectorsPlot2DNode(Node):
                     self._label_artists.append(t)
 
     def _publish_plot(self):
+        # Skip if the context is being torn down -- avoids
+        # "publisher's context is invalid" on Ctrl-C / SIGTERM.
+        if not rclpy.ok():
+            return
         self._setup_figure()
         self._update_artists()
 
         self._fig.canvas.draw()
         w, h = self._fig.canvas.get_width_height()
-        raw = self._fig.canvas.tostring_rgb()
+        # matplotlib >=3.10 removed FigureCanvasAgg.tostring_rgb().
+        # buffer_rgba() works on every supported version; strip alpha to RGB.
+        ba = bytearray(self._fig.canvas.buffer_rgba())
+        del ba[3::4]
+        raw = bytes(ba)
         if len(raw) != w * h * 3:
             return
 
@@ -204,8 +213,14 @@ class StateVectorsPlot2DNode(Node):
         msg.encoding = 'rgb8'
         msg.is_bigendian = 0
         msg.step = w * 3
-        msg.data = list(raw)
-        self._image_pub.publish(msg)
+        msg.data = raw
+        try:
+            self._image_pub.publish(msg)
+        except Exception:
+            # Race: shutdown can invalidate the publisher between the rclpy.ok()
+            # check above and the publish call. Swallow so the timer doesn't
+            # crash the executor during teardown.
+            pass
 
 
 def main(args=None):
@@ -213,11 +228,15 @@ def main(args=None):
     node = StateVectorsPlot2DNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

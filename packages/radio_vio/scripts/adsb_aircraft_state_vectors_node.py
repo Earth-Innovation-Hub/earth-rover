@@ -39,6 +39,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from std_msgs.msg import String
@@ -114,6 +115,14 @@ class ADSBAircraftStateVectorsNode(Node):
         self.declare_parameter('mavros_local_frame', 'ned')  # 'ned' or 'enu'; output is always ENU
 
         self.mavros_ns = self.get_parameter('mavros_namespace').value
+        # Normalize: this node typically runs in the /adsb namespace, so a
+        # bare 'mavros' would resolve to '/adsb/mavros/...' and silently miss
+        # all MAVROS data. Force absolute and strip trailing slashes.
+        if not self.mavros_ns:
+            self.mavros_ns = '/mavros'
+        elif not self.mavros_ns.startswith('/'):
+            self.mavros_ns = '/' + self.mavros_ns
+        self.mavros_ns = self.mavros_ns.rstrip('/')
         self.aircraft_list_topic = self.get_parameter('aircraft_list_topic').value
         self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
         self.heading_smoothing = float(self.get_parameter('heading_rate_smoothing').value)
@@ -210,6 +219,10 @@ class ADSBAircraftStateVectorsNode(Node):
             self._aircraft_list_time = time.time()
 
     def _publish_cb(self):
+        # Skip if the context is being torn down -- avoids
+        # "publisher's context is invalid" on Ctrl-C / SIGTERM.
+        if not rclpy.ok():
+            return
         with self._lock:
             trike_pose = self._trike_pose
             trike_velocity = self._trike_velocity
@@ -344,7 +357,11 @@ class ADSBAircraftStateVectorsNode(Node):
 
         msg = String()
         msg.data = json.dumps(payload)
-        self._pub.publish(msg)
+        try:
+            self._pub.publish(msg)
+        except Exception:
+            # Race during shutdown -- publisher context invalid.
+            pass
 
 
 def main(args=None):
@@ -352,11 +369,15 @@ def main(args=None):
     node = ADSBAircraftStateVectorsNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

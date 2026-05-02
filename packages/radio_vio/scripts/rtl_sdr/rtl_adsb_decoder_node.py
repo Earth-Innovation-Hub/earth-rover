@@ -51,6 +51,7 @@ from typing import Dict, Optional
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String, Float32MultiArray
 from sensor_msgs.msg import NavSatFix
 
@@ -164,8 +165,13 @@ class RTLADSBDecoderNode(Node):
             String, '~/estimated_position', 10)
         self.radio_summary_pub = self.create_publisher(
             String, '~/radio_summary', 10)
+        # MAVROS publishes NavSatFix with sensor-data QoS (BEST_EFFORT). Using
+        # the rclpy default (RELIABLE) drops the topic with
+        #   "incompatible QoS. ... Last incompatible policy: RELIABILITY"
+        # and no fixes ever reach _reference_gps_callback.
         self.reference_gps_sub = self.create_subscription(
-            NavSatFix, self.reference_gps_topic, self._reference_gps_callback, 10)
+            NavSatFix, self.reference_gps_topic,
+            self._reference_gps_callback, qos_profile_sensor_data)
         if self.publish_raw:
             self.raw_msg_pub = self.create_publisher(String, '~/messages', 10)
 

@@ -36,6 +36,7 @@ def _import_matplotlib():
 import rclpy
 from matplotlib.patches import Circle, Polygon, Rectangle
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import String
 from nav_msgs.msg import Odometry
@@ -210,6 +211,11 @@ class LandmarkVOPlotFisheyeNode(Node):
         self.create_subscription(String, self._landmarks_topic, self._landmarks_cb, 10)
         self.create_subscription(String, self._obs_topic, self._observations_cb, 10)
         mavros_ns = self.get_parameter('mavros_namespace').value or '/mavros'
+        # Normalize so a launch arg like 'mavros' (without leading slash)
+        # doesn't silently resolve under this node's namespace.
+        if not mavros_ns.startswith('/'):
+            mavros_ns = '/' + mavros_ns
+        mavros_ns = mavros_ns.rstrip('/')
         self.create_subscription(NavSatFix, f'{mavros_ns}/global_position/raw/fix', self._fix_cb, qos)
         self.create_subscription(NavSatFix, f'{mavros_ns}/global_position/global', self._global_cb, qos)
         if self._enable_aircraft and self._adsb_topic:
@@ -334,6 +340,10 @@ class LandmarkVOPlotFisheyeNode(Node):
         return kx - ox, ky - oy
 
     def _publish_cb(self):
+        # Skip if the context is being torn down -- avoids
+        # "publisher's context is invalid" on Ctrl-C / SIGTERM.
+        if not rclpy.ok():
+            return
         self._plt = self._plt or _import_matplotlib()
         plt = self._plt
         px, py, yaw, use_est = self._get_pose()
@@ -516,7 +526,11 @@ class LandmarkVOPlotFisheyeNode(Node):
 
         self._fig.canvas.draw()
         w, h = self._fig.canvas.get_width_height()
-        raw = self._fig.canvas.tostring_rgb()
+        # matplotlib >=3.10 removed FigureCanvasAgg.tostring_rgb();
+        # buffer_rgba() is portable across versions.
+        ba = bytearray(self._fig.canvas.buffer_rgba())
+        del ba[3::4]
+        raw = bytes(ba)
         if len(raw) != w * h * 3:
             return
 
@@ -527,8 +541,12 @@ class LandmarkVOPlotFisheyeNode(Node):
         msg.encoding = 'rgb8'
         msg.is_bigendian = 0
         msg.step = w * 3
-        msg.data = list(raw)
-        self._image_pub.publish(msg)
+        msg.data = raw
+        try:
+            self._image_pub.publish(msg)
+        except Exception:
+            # Race during shutdown -- publisher context invalid.
+            pass
 
 
 def main(args=None):
@@ -536,11 +554,15 @@ def main(args=None):
     node = LandmarkVOPlotFisheyeNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

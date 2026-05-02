@@ -11,7 +11,7 @@ Usage:
 
 import os
 
-from ament_index_python.packages import get_package_prefix, get_package_share_directory
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -19,9 +19,6 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    pkg_prefix = get_package_prefix('radio_vio')
-    script = os.path.join(pkg_prefix, 'lib', 'radio_vio', 'landmark_vo_plot_fisheye.py')
-
     try:
         pkg_share = get_package_share_directory('radio_vio')
         default_config = os.path.join(pkg_share, 'config', 'landmark_vo_plot_fisheye.yaml')
@@ -49,7 +46,7 @@ def generate_launch_description():
 
     node = Node(
         package='radio_vio',
-        executable=script,
+        executable='landmark_vo_plot_fisheye.py',
         name='landmark_vo_plot_fisheye',
         parameters=parameters,
         output='screen',

@@ -30,9 +30,9 @@ Legacy preset aliases still accepted:
 
 import os
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
@@ -40,6 +40,42 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 
 def _pkg_launch(name: str) -> str:
     return os.path.join(get_package_share_directory('radio_vio'), 'launch', name)
+
+
+def _libexec(executable: str) -> str:
+    return os.path.join(get_package_prefix('radio_vio'), 'lib', 'radio_vio', executable)
+
+
+def _preset_condition(preset, names):
+    return IfCondition(
+        PythonExpression(
+            [
+                "'",
+                preset,
+                "' in (",
+                ', '.join(repr(name) for name in names),
+                ")",
+            ]
+        )
+    )
+
+
+def _optional_include(preset, names, launch_file: str, executable: str):
+    condition = _preset_condition(preset, names)
+    path = _pkg_launch(launch_file)
+    exe_path = _libexec(executable)
+
+    if os.path.isfile(path) and os.access(exe_path, os.X_OK):
+        return IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(path),
+            condition=condition,
+        )
+
+    reason = f'missing launch file {path}' if not os.path.isfile(path) else f'missing executable {exe_path}'
+    return LogInfo(
+        msg=f'[radio_stack] Skipping optional {launch_file}: {reason}',
+        condition=condition,
+    )
 
 
 def generate_launch_description():
@@ -79,70 +115,39 @@ def generate_launch_description():
         ],
     )
 
-    include_vectors = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(_pkg_launch('adsb_aircraft_state_vectors.launch.py')),
-        condition=IfCondition(
-            PythonExpression(
-                [
-                    "'",
-                    preset,
-                    "' in ('state', 'plots', 'vio', 'full', "
-                    "'decoder_state_vectors', 'decoder_landmark')",
-                ]
-            )
-        ),
+    include_vectors = _optional_include(
+        preset,
+        ('state', 'plots', 'vio', 'full', 'decoder_state_vectors', 'decoder_landmark'),
+        'adsb_aircraft_state_vectors.launch.py',
+        'adsb_aircraft_state_vectors_node.py',
     )
 
-    include_plot_2d = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(_pkg_launch('adsb_state_vectors_plot_2d.launch.py')),
-        condition=IfCondition(
-            PythonExpression(
-                [
-                    "'",
-                    preset,
-                    "' in ('plots', 'full')",
-                ]
-            )
-        ),
+    include_plot_2d = _optional_include(
+        preset,
+        ('plots', 'full'),
+        'adsb_state_vectors_plot_2d.launch.py',
+        'adsb_state_vectors_plot_2d.py',
     )
 
-    include_glide = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(_pkg_launch('adsb_state_vectors_plot_glide.launch.py')),
-        condition=IfCondition(
-            PythonExpression(
-                [
-                    "'",
-                    preset,
-                    "' in ('plots', 'full')",
-                ]
-            )
-        ),
+    include_glide = _optional_include(
+        preset,
+        ('plots', 'full'),
+        'adsb_state_vectors_plot_glide.launch.py',
+        'adsb_state_vectors_plot_glide.py',
     )
 
-    include_landmark_2d = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(_pkg_launch('landmark_vo_plot_2d.launch.py')),
-        condition=IfCondition(
-            PythonExpression(
-                [
-                    "'",
-                    preset,
-                    "' in ('vio', 'full', 'decoder_landmark')",
-                ]
-            )
-        ),
+    include_landmark_2d = _optional_include(
+        preset,
+        ('vio', 'full', 'decoder_landmark'),
+        'landmark_vo_plot_2d.launch.py',
+        'landmark_vo_plot_2d.py',
     )
 
-    include_landmark_fisheye = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(_pkg_launch('landmark_vo_plot_fisheye.launch.py')),
-        condition=IfCondition(
-            PythonExpression(
-                [
-                    "'",
-                    preset,
-                    "' in ('vio', 'full')",
-                ]
-            )
-        ),
+    include_landmark_fisheye = _optional_include(
+        preset,
+        ('vio', 'full'),
+        'landmark_vo_plot_fisheye.launch.py',
+        'landmark_vo_plot_fisheye.py',
     )
 
     return LaunchDescription(

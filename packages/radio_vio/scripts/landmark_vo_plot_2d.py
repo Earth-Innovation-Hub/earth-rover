@@ -38,6 +38,7 @@ def _import_matplotlib():
 
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType, FloatingPointRange, SetParametersResult
 from matplotlib.lines import Line2D
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
@@ -210,6 +211,13 @@ class LandmarkVOPlot2DNode(Node):
         self._camera_info_topic = self.get_parameter('camera_info_topic').value
         self._adsb_topic = self.get_parameter('adsb_state_vectors_topic').value
         self._mavros_ns = self.get_parameter('mavros_namespace').value
+        # Normalize so a launch arg like 'mavros' (without the leading slash)
+        # doesn't silently resolve under this node's namespace.
+        if not self._mavros_ns:
+            self._mavros_ns = '/mavros'
+        elif not self._mavros_ns.startswith('/'):
+            self._mavros_ns = '/' + self._mavros_ns
+        self._mavros_ns = self._mavros_ns.rstrip('/')
         self._mavros_frame = self.get_parameter('mavros_local_frame').value
         self._demo_mode = self.get_parameter('demo_mode').value
         self._enable_aircraft = self.get_parameter('enable_aircraft').value
@@ -490,6 +498,10 @@ class LandmarkVOPlot2DNode(Node):
         self._ax_world.set_facecolor('#1a1a1a')
 
     def _publish_plot(self):
+        # Skip if the context is being torn down -- avoids
+        # "publisher's context is invalid" on Ctrl-C / SIGTERM.
+        if not rclpy.ok():
+            return
         self._setup_figure()
         px, py, yaw, use_est = self._get_pose()
         kf_dx, kf_dy = self._get_kf_odom_offset()
@@ -802,7 +814,11 @@ class LandmarkVOPlot2DNode(Node):
 
         self._fig.canvas.draw()
         w, h = self._fig.canvas.get_width_height()
-        raw = self._fig.canvas.tostring_rgb()
+        # matplotlib >=3.10 removed FigureCanvasAgg.tostring_rgb();
+        # buffer_rgba() is portable across versions.
+        ba = bytearray(self._fig.canvas.buffer_rgba())
+        del ba[3::4]
+        raw = bytes(ba)
         if len(raw) != w * h * 3:
             return
 
@@ -813,8 +829,12 @@ class LandmarkVOPlot2DNode(Node):
         msg.encoding = 'rgb8'
         msg.is_bigendian = 0
         msg.step = w * 3
-        msg.data = list(raw)
-        self._image_pub.publish(msg)
+        msg.data = raw
+        try:
+            self._image_pub.publish(msg)
+        except Exception:
+            # Race during shutdown -- publisher context invalid.
+            pass
 
 
 def main(args=None):
@@ -822,11 +842,15 @@ def main(args=None):
     node = LandmarkVOPlot2DNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

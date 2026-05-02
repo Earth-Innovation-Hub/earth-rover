@@ -356,6 +356,30 @@ make radio-stack PRESET=plots
 Install Python and SDR hardware dependencies as described by the helper scripts
 under `packages/radio_vio/scripts/`.
 
+#### Notes / known footguns
+
+- **`mavros_namespace` must be absolute** (e.g. `/mavros`, not `mavros`).
+  `adsb_aircraft_state_vectors_node`, `landmark_vo_plot_2d`, and
+  `landmark_vo_plot_fisheye` concatenate this arg into absolute topic paths,
+  and consumer nodes typically run inside the `/adsb` namespace -- a bare
+  `mavros` would silently resolve to `/adsb/mavros/...` and miss every MAVROS
+  topic. Nodes now normalize the value defensively, and
+  `earth_rover_system.launch.py` defaults to `/mavros`.
+- **MAVROS sensor topics use BEST_EFFORT QoS.** All radio_vio subscriptions
+  to `/mavros/global_position/{global,raw/fix}`, `/mavros/local_position/*`,
+  `/mavros/imu/data` use `qos_profile_sensor_data` / equivalent BEST_EFFORT
+  profiles. Using rclpy's default RELIABLE QoS yields
+  `incompatible QoS ... Last incompatible policy: RELIABILITY` and zero
+  messages -- which previously left
+  `/adsb/rtl_adsb_decoder_node/estimated_position` silent because no GPS
+  fixes ever reached the receiver-position Kalman filter.
+- **Plot publishers handle Jazzy `ExternalShutdownException`** and use
+  `FigureCanvasAgg.buffer_rgba()` instead of the removed-in-matplotlib-3.10
+  `tostring_rgb()`, so the four image plotters
+  (`adsb_state_vectors_plot_2d`, `adsb_state_vectors_plot_glide`,
+  `landmark_vo_plot_2d`, `landmark_vo_plot_fisheye`) shut down cleanly on
+  Ctrl-C / SIGTERM and survive future matplotlib upgrades.
+
 ### `laser_ranger`
 
 Reads a USB serial laser ranger and publishes:

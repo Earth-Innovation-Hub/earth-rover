@@ -18,7 +18,7 @@ Usage:
 
 import os
 
-from ament_index_python.packages import get_package_prefix, get_package_share_directory
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -50,9 +50,6 @@ def generate_launch_description():
         'config_file', default_value='',
         description='Path to YAML config (optional)'
     )
-
-    pkg_prefix = get_package_prefix('radio_vio')
-    plot_script = os.path.join(pkg_prefix, 'lib', 'radio_vio', 'landmark_vo_plot_2d.py')
 
     # Parameters: prefer config_file if provided, else package YAML + launch overrides
     try:
@@ -88,7 +85,7 @@ def generate_launch_description():
 
     plot_node = Node(
         package='radio_vio',
-        executable=plot_script,
+        executable='landmark_vo_plot_2d.py',
         name='landmark_vo_plot_2d',
         parameters=parameters,
         output='screen',

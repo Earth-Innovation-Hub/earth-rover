@@ -13,9 +13,6 @@ Usage:
   ros2 launch radio_vio adsb_state_vectors_plot_2d.launch.py range_km:=50.0
 """
 
-import os
-
-from ament_index_python.packages import get_package_prefix
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -25,12 +22,10 @@ from launch_ros.actions import Node
 def generate_launch_description():
     range_arg = DeclareLaunchArgument('range_km', default_value='100.0', description='Half-width of plot in km')
     topic_arg = DeclareLaunchArgument('state_vectors_topic', default_value='/adsb/adsb_aircraft_state_vectors_node/aircraft_state_vectors')
-    pkg_prefix = get_package_prefix('radio_vio')
-    plot_script = os.path.join(pkg_prefix, 'lib', 'radio_vio', 'adsb_state_vectors_plot_2d.py')
 
     plot_node = Node(
         package='radio_vio',
-        executable=plot_script,
+        executable='adsb_state_vectors_plot_2d.py',
         name='adsb_state_vectors_plot_2d',
         parameters=[{
             'state_vectors_topic': LaunchConfiguration('state_vectors_topic'),

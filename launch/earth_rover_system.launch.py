@@ -236,7 +236,7 @@ def generate_launch_description():
             default_value='/dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0:921600',
         ),
         DeclareLaunchArgument('gcs_url', default_value='udp://@192.168.0.6:14550'),
-        DeclareLaunchArgument('mavros_namespace', default_value='mavros'),
+        DeclareLaunchArgument('mavros_namespace', default_value='/mavros'),
 
         DeclareLaunchArgument('enable_radio_vio', default_value='true'),
         DeclareLaunchArgument('radio_delay_sec', default_value='8.0'),
@@ -244,6 +244,11 @@ def generate_launch_description():
         DeclareLaunchArgument('decoder_mode', default_value='dump1090'),
         DeclareLaunchArgument('rtl_gain', default_value='-1.0'),
         DeclareLaunchArgument('rtl_device_index', default_value='0'),
+        # MAVROS publishes under /mavros. radio_vio nodes (especially
+        # adsb_aircraft_state_vectors_node, landmark_vo_plot_*) read this same
+        # arg and concatenate it into absolute topic paths, so it MUST start
+        # with a leading slash -- a bare 'mavros' would resolve under each
+        # consumer node's own namespace and silently miss every MAVROS topic.
 
         DeclareLaunchArgument('enable_rtl_sdr', default_value='false',
                               description='Standalone RTL-SDR + spectrum analyzer (do not run alongside radio_vio on the same dongle).'),
