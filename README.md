@@ -126,21 +126,40 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 | **`packages/rtlsdr_ros2/`** | RTL-SDR ROS 2 reader, spectrum messages, and support nodes used by `radio_vio`. |
 | **`packages/laser_ranger/`** | USB serial laser ranger ROS 2 package. |
 | **`packages/spectrometery_ros2/`** | Ocean Optics / SeaBreeze spectrometer publisher and plot-image node. |
-| **`scripts/`** | Vehicle-side helper scripts. SDR / ADS-B / landmark-VO executables live under `packages/radio_vio/scripts/`. |
+| **`scripts/`** | Vehicle-side helper scripts; operator **keyboard hotkeys** under [`scripts/hotkeys/`](scripts/hotkeys/). SDR / ADS-B / landmark-VO executables live under `packages/radio_vio/scripts/`. |
 | **`scripts/startup/`** | Current `systemd --user` unit generator, kiosk helper, VCS stop/status helpers, and manual archive service files. Legacy trike startup scripts have been removed. |
 | **`vehicle_control_station/`** | Django web app for real-time camera feeds, GPS/map, LiDAR, spectrometer, avionics gauges, and ROS recording. See [`vehicle_control_station/README.md`](vehicle_control_station/README.md). |
 | **`config/`** | YAML and RViz configurations for MAVROS, vehicle sensors, telemetry, and the `earth_rover.perspective` rqt layout used by the system launch. |
-| **`docs/images/`** | Repo-tracked screenshots and diagrams (e.g. the rqt perspective view referenced from the bring-up section). |
 | **`external/deepgis_vision/`** | Git submodule for Grasshopper stereo vision / AI perception launch integration. |
+| **`external/metavision_driver/`** | Git submodule pinning a `darknight-007` fork of the Prophesee Metavision ROS 2 driver used for event-camera capture. |
+| **`external/patches/`** | Local-machine patches applied on top of pinned upstream SHAs (Metavision driver, ORB-SLAM3 ROS 2 monocular). See [`external/patches/README.md`](external/patches/README.md). |
 | **`kernelcal/`** | Git submodule for kernel-dynamics / Maximum-Caliber analysis experiments. |
+| **`earth-rover.repos`** | `vcstool` manifest pinning every non-submodule upstream package (PX4, MAVROS bridge, FLIR/RealSense/event-camera drivers, ORB-SLAM3 ROS 2) at the SHAs running on the rover. |
+| **`scripts/setup_workspace.sh`** | One-shot workspace bootstrapper that initializes submodules, symlinks this repo into `~/ros2_ws/src/`, runs `vcs import` against `earth-rover.repos`, applies `external/patches/`, and `colcon build`s. |
 | **`Makefile`** | Developer/operator shortcuts. Run `make help` for the current target list. |
+| **`docs/`** | Untracked (gitignored) local design notes — ADS-B receiver-position estimator, landmark VO, state estimation. Screenshots embedded from the bring-up section are local-only; ask if you need a copy. |
 
 ## Current ROS 2 Stack
 
 The working runtime is ROS 2 **Jazzy**. The repo root builds the `deepgis_vehicles`
 package, while the instrument and radio packages live under `packages/`.
+Upstream non-submodule dependencies are pinned in
+[`earth-rover.repos`](earth-rover.repos) and brought in via `vcstool`.
 
-From this checkout:
+The reproducible end-to-end bring-up is `scripts/setup_workspace.sh`. It clones
+the `external/` submodules, symlinks this repo into `~/ros2_ws/src/`, runs
+`vcs import < earth-rover.repos`, applies `external/patches/`, and
+`colcon build`s the result:
+
+```bash
+~/earth-rover/scripts/setup_workspace.sh
+# Useful flags:
+#   --no-build      stop after import + patches
+#   --no-patches    skip applying external/patches/*.patch
+#   --ws ~/other_ws use a different workspace root
+```
+
+For incremental rebuilds of just the first-party packages from this checkout:
 
 ```bash
 cd ~/earth-rover
@@ -181,6 +200,27 @@ make record-bag-mavros                   # MAVROS + tf + diagnostics + adsb
 make record-bag-stereo                   # stereo only (compressed by default)
 make record-bag RECORD_ARGS="record_stereo_raw:=true compression_mode:=file"
 ```
+
+## Keyboard shortcuts (GNOME)
+
+System-wide shortcuts start and stop the trike stack and rosbag recording via transient `systemd --user` units (graceful `SIGINT` for `ros2 launch` / `ros2 bag`). Install once on a GNOME-based desktop (Ubuntu, Pop!\_OS, Fedora Workstation):
+
+```bash
+make hotkeys-install    # register bindings
+make hotkeys-status     # verify state
+make hotkeys-uninstall  # remove only Earth Rover entries
+```
+
+| Action | Default shortcut | Notes |
+|--------|------------------|--------|
+| Start trike (`make system-launch` by default) | **Ctrl+Alt+Super+T** | Idempotent if already running. |
+| Stop trike | **Ctrl+Alt+Super+Q** | **Double-tap within 3 s** to confirm shutdown. |
+| Start rosbag (`make record-bag-mavros` by default) | **Ctrl+Alt+Super+B** | Idempotent if already recording. |
+| Stop rosbag | **Ctrl+Alt+Super+E** | Flushes bag metadata on `SIGINT`. |
+
+**Tail hotkey unit logs:** `make hotkey-tail-trike` or `make hotkey-tail-bag`.
+
+**Customize** bindings at install time (example): set `ER_BIND_TRIKE_START`, `ER_BIND_TRIKE_STOP`, `ER_BIND_BAG_START`, `ER_BIND_BAG_STOP` before `make hotkeys-install`. **Change what runs** on start: `ER_TRIKE_TARGET` (default `system-launch`) and `ER_BAG_TARGET` (default `record-bag-mavros`). Full behavior, safety notes, non-GNOME desktops audit logging, and manual script paths are documented in [`scripts/hotkeys/README.md`](scripts/hotkeys/README.md).
 
 ## Primary Bring-Up
 
@@ -262,9 +302,8 @@ sensor.
 Stage 7 launches `rqt` on the operator's `$DISPLAY` and loads the canonical
 `earth_rover` perspective. The default layout shows the left and right
 Grasshopper image streams, the spectrometer plot image, and the
-`/laser_distance` time series:
-
-![rqt earth_rover perspective](docs/images/rqt_earth_rover_perspective.png)
+`/laser_distance` time series. (A reference screenshot lives under the
+gitignored `docs/` tree on operator workstations; ask if you need a copy.)
 
 Skip the GUI on headless boots:
 
@@ -511,7 +550,13 @@ state-estimation analyses are kept as design notes under `docs/` when present.
 
 ## Cloning
 
-This repo uses a git submodule (`kernelcal`). Clone with `--recurse-submodules`:
+This repo tracks three git submodules:
+
+- `kernelcal` — kernel-dynamics / Maximum-Caliber experiments.
+- `external/deepgis_vision` — Grasshopper stereo / AI perception fork.
+- `external/metavision_driver` — Prophesee event-camera ROS 2 driver fork.
+
+Clone with `--recurse-submodules`:
 
 ```bash
 git clone --recurse-submodules git@github.com:Earth-Innovation-Hub/earth-rover.git
@@ -529,6 +574,11 @@ To later pull updates (including submodule bumps):
 ```bash
 git pull --recurse-submodules
 ```
+
+For a full ROS 2 workspace (submodules + `vcs import` from
+[`earth-rover.repos`](earth-rover.repos) + local patches + `colcon build`),
+run [`scripts/setup_workspace.sh`](scripts/setup_workspace.sh) — see
+[Current ROS 2 Stack](#current-ros-2-stack).
 
 ---
 
