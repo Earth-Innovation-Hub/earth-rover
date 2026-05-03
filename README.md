@@ -126,7 +126,7 @@ https://www.youtube.com/watch?v=2V3Mc3UAJss
 | **`packages/rtlsdr_ros2/`** | RTL-SDR ROS 2 reader, spectrum messages, and support nodes used by `radio_vio`. |
 | **`packages/laser_ranger/`** | USB serial laser ranger ROS 2 package. |
 | **`packages/spectrometery_ros2/`** | Ocean Optics / SeaBreeze spectrometer publisher and plot-image node. |
-| **`scripts/`** | Vehicle-side helper scripts; operator **keyboard hotkeys** under [`scripts/hotkeys/`](scripts/hotkeys/). SDR / ADS-B / landmark-VO executables live under `packages/radio_vio/scripts/`. |
+| **`scripts/`** | Vehicle-side helper scripts; operator **keyboard hotkeys** under [`scripts/hotkeys/`](scripts/hotkeys/), post-mission **rosbag analysis** scripts (`analyze_spectrometer_rosbag.py`, `cluster_spectrometer_rosbag.py`, `geoplot_rosbag.py` — see [Rosbag analysis scripts](#rosbag-analysis-scripts)). SDR / ADS-B / landmark-VO executables live under `packages/radio_vio/scripts/`. |
 | **`scripts/startup/`** | Current `systemd --user` unit generator, kiosk helper, VCS stop/status helpers, and manual archive service files. Legacy trike startup scripts have been removed. |
 | **`vehicle_control_station/`** | Django web app for real-time camera feeds, GPS/map, LiDAR, spectrometer, avionics gauges, and ROS recording. See [`vehicle_control_station/README.md`](vehicle_control_station/README.md). |
 | **`config/`** | YAML and RViz configurations for MAVROS, vehicle sensors, telemetry, and the `earth_rover.perspective` rqt layout used by the system launch. |
@@ -470,6 +470,90 @@ Launch arguments:
 | `plot_image_topic` | `spectrometer_plot` | Output image topic |
 
 Dependencies: **`python3-numpy`**, **`python3-matplotlib`**, **`python3-seabreeze`** / SeaBreeze drivers for the spectrometer hardware.
+
+## Rosbag analysis scripts
+
+Post-mission analysis scripts that read recorded rosbag2 directories (mcap or
+sqlite3) and emit figures, CSVs, and small reports next to the bag. All three
+require a sourced ROS 2 environment for `rosbag2_py` / `rclpy` and run with
+matplotlib's `Agg` backend (no display needed). Run them from `scripts/`.
+
+```bash
+source /opt/ros/jazzy/setup.bash    # required for rosbag2_py, rclpy
+~/earth-rover/scripts/analyze_spectrometer_rosbag.py --bag <bag>
+~/earth-rover/scripts/cluster_spectrometer_rosbag.py --bag <bag> --mask-lo 350 --mask-hi 850
+~/earth-rover/scripts/geoplot_rosbag.py --bag <bag> --overlay laser --overlay spectra-clusters
+```
+
+### `analyze_spectrometer_rosbag.py`
+
+Reads `std_msgs/Float64MultiArray` spectra (default topic `/spectrometer`,
+layout `[integration_time_µs, intensities…, wavelengths…]` as published by
+`spectrometery_ros2/Spectrometer_Data_Publisher.py`) and renders a
+**time–wavelength heatmap** PNG. Useful CLI args: `--topic`, `--stride`,
+`--clip-lo / --clip-hi` (percentile color clip), `--cmap`, `--figsize`,
+`--dpi`. Also exposes a public `load_spectra_from_bag(bag, topic, stride)`
+helper used by the other two scripts.
+
+### `cluster_spectrometer_rosbag.py`
+
+End-to-end **unsupervised report** for a spectrometer bag. Pipeline:
+
+1. wavelength **mask** + **SNV** + **Savitzky–Golay** derivative
+2. **PCA** (keep components covering `--pca-variance`, capped at `--max-pcs`)
+3. **UMAP** → **HDBSCAN** on the PCA scores (with KMeans fallback)
+4. **NMF** on non-negative raw spectra (`--nmf-components`, default 5)
+
+Saves a `<bag>_cluster_report/` directory with PCA scree, UMAP-colored
+embedding, cluster mean spectra, NMF endmembers + abundances, a 6-panel
+summary, and a text report. Tunable via `--mask-lo / --mask-hi` (default
+`None` — pass `350` / `850` to drop the noisy UV/IR edges of the OceanOptics
+sensor), `--savgol-window/-poly/-deriv`, `--umap-neighbors / --umap-min-dist`,
+`--hdbscan-min-cluster`. Exposes a pure
+`compute_clusters_and_nmf(X, wl, **params) -> ClusterPipelineResult` that
+`geoplot_rosbag.py` imports.
+
+### `geoplot_rosbag.py`
+
+Plots the trike **GPS path** from a rosbag (default
+`/mavros/global_position/raw/fix`, with companion topics
+`/mavros/global_position/raw/{gps_vel, satellites}` and
+`/mavros/gpsstatus/gps1/raw` for fix-quality / EPH). Outputs to a
+`<bag>_geoplot/` directory:
+
+- `path_local.png` — equirectangular meters, equal aspect, color = speed (or
+  `--color-by time|altitude|satellites|fix_type`).
+- `path_geo.png` — raw lat/lon scatter.
+- `altitude.png`, `speed.png`, `satellites.png` — GPS QoS time series.
+- `summary.png` — 2×2 dashboard.
+- `path.csv` — per-fix `t_unix, t_rel_s, lat, lon, alt_m, speed_mps, vspeed_mps, satellites, fix_type, eph_m, nav_status, cov_xy_m`, plus per-overlay columns when overlays are enabled.
+- `report.txt` — distance, duration, lat/lon range, speed/sat/EPH stats,
+  fix-type breakdown, NavSatFix sigma stats.
+
+**Overlays** (repeatable, `--overlay <name>`) attach extra per-fix data via
+nearest-neighbor / linear time alignment onto the GPS-fix timeline:
+
+| Overlay | Topics read | Adds |
+|---------|-------------|------|
+| `laser` | `/laser_distance` (`std_msgs/Float64`) | `path_laser.png`, `laser.png` (time series), `laser_m` CSV column |
+| `spectra-clusters` | `/spectrometer` | Runs `compute_clusters_and_nmf` internally; `path_clusters.png` (discrete tab20 categorical), `clusters_timeline.png`, `path_nmf_em<i>.png` for each endmember (continuous viridis), and `spectra_cluster` + `nmf_em<i>` CSV columns |
+
+Tuning passes through to the cluster pipeline via `--spectra-mask-lo`
+(default 350), `--spectra-mask-hi` (default 850),
+`--spectra-nmf-components` (default 5), `--spectra-min-cluster`,
+`--spectra-stride`. New overlays are added by writing a `_run_*_overlay()`
+that uses the public `align_to(target_t, src_t, src_v)` primitive — no other
+plumbing needed.
+
+### Dependencies
+
+The clustering / overlay paths need: `scikit-learn` (≥1.3 for built-in
+HDBSCAN; `hdbscan` package also auto-detected as fallback), `umap-learn`,
+`scipy`. Install with `pip install --user scikit-learn umap-learn hdbscan`
+(or `apt install python3-sklearn` + pip for the others). On Ubuntu 24.04 /
+Python 3.12, `numba 0.65` (a UMAP transitive dep) needs `coverage>=7.6`;
+`pip install --user --upgrade coverage` if you hit
+`module 'coverage.types' has no attribute 'Tracer'`.
 
 ## Systemd User Units
 
