@@ -537,13 +537,17 @@ nearest-neighbor / linear time alignment onto the GPS-fix timeline:
 |---------|-------------|------|
 | `laser` | `/laser_distance` (`std_msgs/Float64`) | `path_laser.png`, `laser.png` (time series), `laser_m` CSV column |
 | `spectra-clusters` | `/spectrometer` | Runs `compute_clusters_and_nmf` internally; `path_clusters.png` (discrete tab20 categorical), `clusters_timeline.png`, `path_nmf_em<i>.png` for each endmember (continuous viridis), and `spectra_cluster` + `nmf_em<i>` CSV columns |
+| `adsb-aircraft` | `/adsb/rtl_adsb_decoder_node/aircraft_list` (`std_msgs/String`, JSON) | `path_adsb.png` — trike path + per-aircraft tracks plotted in the same equirectangular meters frame, clipped to a square of side `2·--adsb-half-extent` (default `5000` → 10×10 km), tracks colored by altitude (ft) via a `LineCollection`, top-N callsigns/ICAOs annotated; `adsb_tracks.csv` (one row per deduped position update). |
 
-Tuning passes through to the cluster pipeline via `--spectra-mask-lo`
-(default 350), `--spectra-mask-hi` (default 850),
+Tuning for `spectra-clusters` passes through to the cluster pipeline via
+`--spectra-mask-lo` (default 350), `--spectra-mask-hi` (default 850),
 `--spectra-nmf-components` (default 5), `--spectra-min-cluster`,
-`--spectra-stride`. New overlays are added by writing a `_run_*_overlay()`
-that uses the public `align_to(target_t, src_t, src_v)` primitive — no other
-plumbing needed.
+`--spectra-stride`. Tuning for `adsb-aircraft`: `--adsb-topic`,
+`--adsb-half-extent` (m), `--adsb-cmap`, `--adsb-label-top-n`. New overlays
+are added by writing a `_run_*_overlay()` that uses the public
+`align_to(target_t, src_t, src_v)` primitive (or, for non-time-series
+overlays like aircraft tracks, just the equirectangular projection helpers)
+— no other plumbing needed.
 
 ### Dependencies
 
@@ -554,6 +558,55 @@ HDBSCAN; `hdbscan` package also auto-detected as fallback), `umap-learn`,
 Python 3.12, `numba 0.65` (a UMAP transitive dep) needs `coverage>=7.6`;
 `pip install --user --upgrade coverage` if you hit
 `module 'coverage.types' has no attribute 'Tracer'`.
+
+## ORB-SLAM3 monocular (right Grasshopper, rosbag replay)
+
+To run **ORB-SLAM3 in monocular mode** on **`/stereo/right/image_raw`** from a
+recorded rosbag2 directory (Bayer `bayer_gbrg8` → `bayer_to_mono.py` →
+`/stereo/right/image_mono` → `ros2 run orbslam3 mono`), use the packaged wrapper:
+
+```bash
+# One-shot (starts debayer relay + SLAM + filtered bag play; saves trajectories when the bag ends)
+cd ~/earth-rover
+./scripts/run_orbslam3_right_rosbag.sh \
+  --bag ~/earth-rover-bags/earth_rover_20260502_083404 \
+  --output-dir reports/orbslam3_right \
+  [--rate 1.0] [--downscale 1] [--start 0]
+
+# Headless / CI (no Pangolin window)
+ORBSLAM3_NO_VIEWER=1 ./scripts/run_orbslam3_right_rosbag.sh --bag <bag> ...
+```
+
+If your shell has **bash nounset** (`set -u` in `.bashrc`), sourcing the workspace hits
+`COLCON_TRACE: unbound variable` inside colcon’s `install/setup.bash`. Either run the
+wrapper above (it exports a default `COLCON_TRACE`), or before manual `source` lines run:
+
+```bash
+export COLCON_TRACE=
+# or:  set +u; source ~/ros2_ws/install/setup.bash; set -u
+```
+
+**Prerequisites:**
+
+- ROS 2 **Jazzy** on `PATH`; workspace sourced: `source ~/ros2_ws/install/setup.bash`
+  (needs the `orbslam3` package from `orbslam3_ros2` — see
+  [`earth-rover.repos`](earth-rover.repos) and [`scripts/setup_workspace.sh`](scripts/setup_workspace.sh)).
+- ORB-SLAM3 libraries at **`ORB_SLAM3_ROOT_DIR`** (default
+  `~/ORB-SLAM3-STEREO-FIXED`); `LD_LIBRARY_PATH` is extended by the script.
+- **`~/ros2_ws/src/orbslam3_ros2/vocabulary/ORBvoc.txt`**
+- Settings YAML — default **`config/monocular/gh.yaml`** (narrow-angle
+  calibration from [`external/patches/orbslam3_gh_monocular.yaml`](external/patches/orbslam3_gh_monocular.yaml)).
+  The **right** camera in the bag is the **wide-angle** Grasshopper; intrinsics
+  will be approximate until a dedicated `*_wide.yaml` exists
+  (see docstring in [`scripts/orbslam3_right_rosbag.launch.py`](scripts/orbslam3_right_rosbag.launch.py)).
+
+**Outputs:** `reports/orbslam3_right/<bag_basename>/` receives
+`*_CameraTrajectory.txt`, `*_KeyFrameTrajectory.txt`, and log files. The script
+`cd`s there before launching so ORB-SLAM3 writes trajectories into that folder.
+
+**Manual two-terminal workflow:** [`scripts/orbslam3_right_rosbag.launch.py`](scripts/orbslam3_right_rosbag.launch.py)
+(debayer + mono node only) in terminal 1, then
+`ros2 bag play <bag> --topics /stereo/right/image_raw` in terminal 2.
 
 ## Systemd User Units
 
