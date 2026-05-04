@@ -31,11 +31,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import sys
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib
 
@@ -347,6 +349,67 @@ def parse_scalar(records: List, label: str, units: str = '') -> TimeSeries:
     return TimeSeries(t_ns, v, label, units)
 
 
+def parse_adsb_aircraft_list(records: List) -> List[Dict[str, Any]]:
+    """Parse ``/adsb/.../aircraft_list`` JSON String messages.
+
+    The decoder republishes the full tracker snapshot every ~2 s, so dedupe by
+    ``(icao, last_update)`` to recover one row per actual ADS-B position update.
+    Returns a list of dicts with keys: icao, callsign, t_unix, t_rec_ns,
+    lat, lon, alt_ft, speed_kts, heading_deg, vertical_rate_ftmin.
+    """
+    seen: Dict[Tuple[str, float], Dict[str, Any]] = {}
+    for t_rec, msg in records:
+        raw = getattr(msg, 'data', None)
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        for a in payload.get('aircraft', []) or []:
+            if not a.get('has_position'):
+                continue
+            lat = a.get('latitude')
+            lon = a.get('longitude')
+            if lat is None or lon is None:
+                continue
+            icao = (a.get('icao') or '').strip().upper()
+            if not icao:
+                continue
+            lu = a.get('last_update')
+            if lu is None:
+                lu = float(t_rec) * 1e-9
+            key = (icao, round(float(lu), 3))
+            if key in seen:
+                continue
+            cs = a.get('callsign')
+            cs = cs.strip() if isinstance(cs, str) else None
+            seen[key] = {
+                'icao': icao,
+                'callsign': cs or None,
+                't_unix': float(lu),
+                't_rec_ns': int(t_rec),
+                'lat': float(lat),
+                'lon': float(lon),
+                'alt_ft': float(a['altitude']) if a.get('altitude') is not None else None,
+                'speed_kts': float(a['speed']) if a.get('speed') is not None else None,
+                'heading_deg': float(a['heading']) if a.get('heading') is not None else None,
+                'vertical_rate_ftmin': (
+                    float(a['vertical_rate']) if a.get('vertical_rate') is not None else None
+                ),
+            }
+    rows = list(seen.values())
+    rows.sort(key=lambda r: (r['icao'], r['t_unix']))
+    return rows
+
+
+def group_adsb_by_icao(rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    tracks: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for r in rows:
+        tracks[r['icao']].append(r)
+    return tracks
+
+
 def parse_gpsraw(records: List) -> Tuple[TimeSeries, TimeSeries]:
     if not records:
         return (TimeSeries(np.array([], dtype=np.int64), np.array([]), 'fix_type', ''),
@@ -436,6 +499,151 @@ def plot_path_local(
         cb = plt.colorbar(sc, ax=ax, fraction=0.04, pad=0.02)
         cb.set_label(color_label)
     return lat0_used, lon0_used
+
+
+def plot_path_with_adsb(
+    ax,
+    track: GpsTrack,
+    aircraft_rows: List[Dict[str, Any]],
+    lat0: float,
+    lon0: float,
+    half_extent_m: float = 5000.0,
+    cmap_name: str = 'plasma',
+    label_top_n: int = 10,
+) -> Tuple[int, int]:
+    """Trike path + per-aircraft tracks in local meters, clipped to a square.
+
+    Returns ``(n_aircraft_in_box, n_points_in_box)``.
+    """
+    from matplotlib.collections import LineCollection
+    from matplotlib.colors import Normalize
+
+    tx, ty, _, _ = latlon_to_local_xy(track.lat, track.lon, lat0, lon0)
+
+    tracks = group_adsb_by_icao(aircraft_rows)
+    icao_in_box = 0
+    pts_in_box = 0
+
+    valid_alt = [
+        r['alt_ft'] for r in aircraft_rows
+        if r.get('alt_ft') is not None and math.isfinite(r['alt_ft'])
+    ]
+    if valid_alt:
+        alt_lo = max(0.0, float(np.min(valid_alt)))
+        alt_hi = max(alt_lo + 1.0, float(np.percentile(valid_alt, 99)))
+    else:
+        alt_lo, alt_hi = 0.0, 40000.0
+    norm = Normalize(vmin=alt_lo, vmax=alt_hi)
+
+    sorted_icaos = sorted(
+        tracks.keys(), key=lambda k: len(tracks[k]), reverse=True,
+    )
+
+    sm_for_cb = None  # capture a ScalarMappable for the colorbar
+
+    for icao in sorted_icaos:
+        rows = tracks[icao]
+        if len(rows) < 1:
+            continue
+        lats = np.fromiter((r['lat'] for r in rows), dtype=np.float64)
+        lons = np.fromiter((r['lon'] for r in rows), dtype=np.float64)
+        x, y, _, _ = latlon_to_local_xy(lats, lons, lat0, lon0)
+        in_box = (np.abs(x) <= half_extent_m) & (np.abs(y) <= half_extent_m)
+        if not in_box.any():
+            continue
+        icao_in_box += 1
+        pts_in_box += int(in_box.sum())
+
+        alt_ft = np.fromiter(
+            ((r['alt_ft'] if r['alt_ft'] is not None else np.nan) for r in rows),
+            dtype=np.float64,
+        )
+
+        if x.size >= 2:
+            pts = np.column_stack([x, y])
+            segs = np.stack([pts[:-1], pts[1:]], axis=1)
+            seg_alt = np.where(
+                np.isnan(alt_ft[:-1]) | np.isnan(alt_ft[1:]),
+                np.nan,
+                0.5 * (alt_ft[:-1] + alt_ft[1:]),
+            )
+            valid = ~np.isnan(seg_alt)
+            if valid.any():
+                lc = LineCollection(
+                    segs[valid], cmap=cmap_name, norm=norm, linewidths=1.0,
+                    alpha=0.7, zorder=2,
+                )
+                lc.set_array(seg_alt[valid])
+                ax.add_collection(lc)
+                if sm_for_cb is None:
+                    sm_for_cb = lc
+            invalid = ~valid
+            if invalid.any():
+                ax.add_collection(LineCollection(
+                    segs[invalid], colors='#bbb', linewidths=0.6, alpha=0.4, zorder=2,
+                ))
+
+        ax.scatter(
+            x[in_box], y[in_box],
+            c=alt_ft[in_box], cmap=cmap_name, norm=norm,
+            s=8, alpha=0.85, zorder=3, edgecolors='none',
+        )
+
+    if sm_for_cb is None:
+        # No aircraft inside the box; still build a placeholder mappable so
+        # the colorbar legend is present (matplotlib requires an artist).
+        from matplotlib.cm import ScalarMappable
+        sm_for_cb = ScalarMappable(cmap=cmap_name, norm=norm)
+        sm_for_cb.set_array([])
+
+    label_count = 0
+    for icao in sorted_icaos:
+        if label_count >= label_top_n:
+            break
+        rows = tracks[icao]
+        latest = rows[-1]
+        x_l, y_l, _, _ = latlon_to_local_xy(
+            np.array([latest['lat']]), np.array([latest['lon']]),
+            lat0, lon0,
+        )
+        if abs(float(x_l[0])) > half_extent_m or abs(float(y_l[0])) > half_extent_m:
+            continue
+        label = latest['callsign'] or icao
+        ax.annotate(
+            label,
+            xy=(float(x_l[0]), float(y_l[0])),
+            xytext=(6, 4),
+            textcoords='offset points',
+            fontsize=7, color='black',
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
+                      edgecolor='gray', alpha=0.7, lw=0.5),
+            zorder=4,
+        )
+        label_count += 1
+
+    ax.plot(tx, ty, color='black', lw=1.2, zorder=5, label='trike path')
+    ax.scatter([tx[0]], [ty[0]], marker='o', s=80, facecolor='none',
+               edgecolor='lime', lw=1.6, zorder=6, label='trike start')
+    ax.scatter([tx[-1]], [ty[-1]], marker='X', s=80, color='red',
+               zorder=6, label='trike end')
+
+    extent_km = 2.0 * half_extent_m / 1000.0
+    ax.set_xlim(-half_extent_m, half_extent_m)
+    ax.set_ylim(-half_extent_m, half_extent_m)
+    ax.set_aspect('equal')
+    ax.grid(alpha=0.3)
+    ax.set_xlabel('East (m)')
+    ax.set_ylabel('North (m)')
+    ax.set_title(
+        f'Trike path + ADS-B aircraft tracks  ({extent_km:.0f}×{extent_km:.0f} km, '
+        f'origin=({lat0:.6f}, {lon0:.6f}))  '
+        f'aircraft_in_box={icao_in_box}/{len(tracks)}'
+    )
+    ax.legend(loc='upper left', fontsize=8, framealpha=0.85)
+
+    cb = plt.colorbar(sm_for_cb, ax=ax, fraction=0.04, pad=0.02)
+    cb.set_label('Aircraft altitude (ft)')
+    return icao_in_box, pts_in_box
 
 
 def plot_path_clusters(
@@ -781,6 +989,11 @@ def run(args: argparse.Namespace) -> None:
             bag_path, args, track, lat0, lon0, dpi, out_dir, extra_csv,
         )
 
+    if 'adsb-aircraft' in args.overlay:
+        overlay_files += _run_adsb_aircraft_overlay(
+            bag_path, args, track, lat0, lon0, dpi, out_dir,
+        )
+
     write_path_csv(out_dir / 'path.csv', track, extras, extra_csv)
     write_report(out_dir / 'report.txt', bag_path, resolved, track, extras)
 
@@ -967,6 +1180,75 @@ def _run_spectra_clusters_overlay(
     return written
 
 
+def _run_adsb_aircraft_overlay(
+    bag_path: Path,
+    args: argparse.Namespace,
+    track: GpsTrack,
+    lat0: float,
+    lon0: float,
+    dpi: float,
+    out_dir: Path,
+) -> List[str]:
+    print(f'[overlay:adsb-aircraft] reading {args.adsb_topic}')
+    records, resolved = read_topics(
+        bag_path,
+        {'adsb': args.adsb_topic},
+        {'adsb': 'std_msgs/msg/String'},
+    )
+    if 'adsb' not in resolved:
+        print('  adsb topic not found; skipping overlay.', file=sys.stderr)
+        return []
+    rows = parse_adsb_aircraft_list(records['adsb'])
+    if not rows:
+        print('  no aircraft samples with positions; skipping overlay.', file=sys.stderr)
+        return []
+    tracks = group_adsb_by_icao(rows)
+    print(
+        f'  parsed {len(rows)} ADS-B position updates from '
+        f'{len(records["adsb"])} list snapshots; {len(tracks)} unique aircraft'
+    )
+
+    half = float(args.adsb_half_extent)
+    fig, ax = plt.subplots(figsize=(13, 12), dpi=dpi)
+    n_in_box, pts_in_box = plot_path_with_adsb(
+        ax, track, rows, lat0, lon0,
+        half_extent_m=half,
+        cmap_name=args.adsb_cmap,
+        label_top_n=args.adsb_label_top_n,
+    )
+    fig.tight_layout()
+    fig.savefig(out_dir / 'path_adsb.png')
+    plt.close(fig)
+    print(
+        f'  aircraft inside ±{half:.0f} m box: {n_in_box}/{len(tracks)}  '
+        f'(points={pts_in_box}/{len(rows)})'
+    )
+
+    csv_path = out_dir / 'adsb_tracks.csv'
+    with csv_path.open('w', newline='') as f:
+        w = csv.writer(f)
+        w.writerow([
+            't_unix', 't_rec_ns', 'icao', 'callsign',
+            'lat', 'lon', 'alt_ft', 'speed_kts', 'heading_deg',
+            'vertical_rate_ftmin',
+        ])
+        for r in rows:
+            w.writerow([
+                f'{r["t_unix"]:.3f}',
+                int(r['t_rec_ns']),
+                r['icao'],
+                r['callsign'] or '',
+                f'{r["lat"]:.6f}',
+                f'{r["lon"]:.6f}',
+                _fmt(r.get('alt_ft', float('nan'))),
+                _fmt(r.get('speed_kts', float('nan'))),
+                _fmt(r.get('heading_deg', float('nan'))),
+                _fmt(r.get('vertical_rate_ftmin', float('nan'))),
+            ])
+
+    return ['path_adsb.png', 'adsb_tracks.csv']
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         description='Plot trike GPS path from a rosbag (with speed / sat / EPH overlays).',
@@ -996,11 +1278,13 @@ def main() -> None:
         '--overlay',
         action='append',
         default=[],
-        choices=['laser', 'spectra-clusters'],
+        choices=['laser', 'spectra-clusters', 'adsb-aircraft'],
         help=(
             'Add an overlay layer (repeatable). "laser" reads /laser_distance, '
             '"spectra-clusters" runs the unsupervised cluster pipeline on '
-            '/spectrometer and colors the path by cluster id + per-NMF endmember.'
+            '/spectrometer and colors the path by cluster id + per-NMF endmember, '
+            '"adsb-aircraft" plots ADS-B aircraft tracks alongside the trike path '
+            'in a square of side 2 * --adsb-half-extent centered on the trike.'
         ),
     )
     p.add_argument(
@@ -1043,6 +1327,29 @@ def main() -> None:
         type=int,
         default=0,
         help='HDBSCAN min_cluster_size on spectra (0 = auto = max(20, N/100)).',
+    )
+
+    p.add_argument(
+        '--adsb-topic',
+        default='/adsb/rtl_adsb_decoder_node/aircraft_list',
+        help='std_msgs/String JSON aircraft list topic (default: %(default)s).',
+    )
+    p.add_argument(
+        '--adsb-half-extent',
+        type=float,
+        default=5000.0,
+        help='Half-side of the square plotting region in meters (default 5000 → 10×10 km).',
+    )
+    p.add_argument(
+        '--adsb-cmap',
+        default='plasma',
+        help='Colormap for aircraft altitude (default: %(default)s).',
+    )
+    p.add_argument(
+        '--adsb-label-top-n',
+        type=int,
+        default=10,
+        help='Annotate up to N callsigns/ICAOs of the most-sampled aircraft inside the box (default %(default)d).',
     )
 
     args = p.parse_args()

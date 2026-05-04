@@ -8,8 +8,8 @@
 // ============================================
 // Get configuration from backend (environment variables) or use defaults
 const VCS_CONFIG = {
-    rosbridge_url: (window.VCS_BACKEND_CONFIG && window.VCS_BACKEND_CONFIG.rosbridge_url) || 'ws://192.168.1.7:9090',
-    video_server_url: (window.VCS_BACKEND_CONFIG && window.VCS_BACKEND_CONFIG.video_server_url) || 'http://192.168.1.7:8080',
+    rosbridge_url: (window.VCS_BACKEND_CONFIG && window.VCS_BACKEND_CONFIG.rosbridge_url) || 'ws://192.168.0.6:9090',
+    video_server_url: (window.VCS_BACKEND_CONFIG && window.VCS_BACKEND_CONFIG.video_server_url) || 'http://192.168.0.6:8080',
     update_intervals: {
         system_info: 5000,      // 5 seconds (storage + CPU)
         recording_status: 10000, // 10 seconds

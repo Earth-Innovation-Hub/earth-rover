@@ -41,6 +41,9 @@ WITH_ROS = bash -c 'set -e; \
         mission-up mission-down mission-status mission-tail \
         ui-up ui-down ui-status \
         archive-now archive-status archive-tail archive-cancel \
+        hotkeys-install hotkeys-uninstall hotkeys-status \
+        hotkey-trike-start hotkey-trike-stop hotkey-bag-start hotkey-bag-stop \
+        hotkey-tail-trike hotkey-tail-bag \
         info
 
 help:
@@ -317,3 +320,37 @@ archive-cancel:
 	systemctl --user stop er-rsync-archive.service
 	systemctl --user reset-failed er-rsync-archive.service 2>/dev/null || true
 	@echo "Archive cancelled."
+
+# ---- Hotkeys ----------------------------------------------------------------
+# Operator-facing keyboard shortcuts that wrap system-launch and
+# record-bag-mavros in transient `er-hotkey-*` user units. See
+# scripts/hotkeys/README.md for design + alternative bindings.
+
+HOTKEYS_DIR := $(EARTH_ROVER_HOME)/scripts/hotkeys
+
+hotkeys-install:
+	bash $(HOTKEYS_DIR)/install-gnome.sh
+
+hotkeys-uninstall:
+	bash $(HOTKEYS_DIR)/uninstall-gnome.sh
+
+hotkeys-status:
+	bash $(HOTKEYS_DIR)/status.sh
+
+hotkey-trike-start:
+	bash $(HOTKEYS_DIR)/trike-start.sh
+
+hotkey-trike-stop:
+	bash $(HOTKEYS_DIR)/trike-stop.sh
+
+hotkey-bag-start:
+	bash $(HOTKEYS_DIR)/rosbag-start.sh
+
+hotkey-bag-stop:
+	bash $(HOTKEYS_DIR)/rosbag-stop.sh
+
+hotkey-tail-trike:
+	journalctl --user -fu er-hotkey-trike.service
+
+hotkey-tail-bag:
+	journalctl --user -fu er-hotkey-bag.service

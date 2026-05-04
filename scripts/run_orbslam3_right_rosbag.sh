@@ -3,7 +3,7 @@
 # a rosbag2 directory.  Spins up:
 #   1. scripts/bayer_to_mono.py                (bayer_gbrg8 -> mono8)
 #   2. orbslam3 mono node                      (subscribes to mono topic)
-#   3. ros2 bag play <bag> --clock             (publishes /stereo/right/image_raw)
+#   3. ros2 bag play <bag> --topics /stereo/right/image_raw
 #
 # All processes are children of this script; Ctrl+C tears them down.  When
 # the bag finishes the script signals SLAM to shut down so it can write
@@ -17,10 +17,6 @@
 #       [--rate 1.0] [--downscale 1] [--start 0]
 
 set -euo pipefail
-
-# colcon's install/setup.bash tests `[ -n "$COLCON_TRACE" ]`; with `set -u`
-# (nounset) that fails if the variable is unset — common when .bashrc enables -u.
-export COLCON_TRACE="${COLCON_TRACE:-}"
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BAG=""
@@ -83,22 +79,40 @@ RUN_DIR="$OUT/$NAME"
 mkdir -p "$RUN_DIR"
 
 # ---- environment --------------------------------------------------------
+# colcon-generated setup.bash uses "$COLCON_TRACE" unguarded; Bash with
+# `set -u` (nounset) errors unless COLCON_TRACE is set. Temporarily allow
+# unset vars while sourcing ROS workspaces, then restore strict mode.
+_activate_ros_bash() {
+    local _path="$1"
+    if [ ! -f "$_path" ]; then
+        return 1
+    fi
+    set +u
+    # shellcheck disable=SC1091
+    . "$_path"
+    set -euo pipefail
+}
+
 if [ -z "${ROS_DISTRO:-}" ]; then
     if [ -f /opt/ros/jazzy/setup.bash ]; then
-        # shellcheck disable=SC1091
-        . /opt/ros/jazzy/setup.bash
+        _activate_ros_bash /opt/ros/jazzy/setup.bash
     else
         echo "[run-orbslam3] ROS not on PATH; install ros-jazzy-* first" >&2
         exit 1
     fi
 fi
 if [ -f "$HOME/ros2_ws/install/setup.bash" ]; then
-    # shellcheck disable=SC1091
-    . "$HOME/ros2_ws/install/setup.bash"
+    _activate_ros_bash "$HOME/ros2_ws/install/setup.bash"
 fi
+unset -f _activate_ros_bash 2>/dev/null || true
 
 export ORB_SLAM3_ROOT_DIR="${ORB_SLAM3_ROOT_DIR:-$HOME/ORB-SLAM3-STEREO-FIXED}"
-export LD_LIBRARY_PATH="$ORB_SLAM3_ROOT_DIR/lib:$ORB_SLAM3_ROOT_DIR/Thirdparty/DBoW2/lib:$ORB_SLAM3_ROOT_DIR/Thirdparty/g2o/lib:$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
+# Pangolin search order: $PANGOLIN_BUILD (override), ~/Pangolin/build, ~/.local/lib.
+# The mono binary's rpath references ~/.local/lib but that copy is incomplete
+# (missing libpango_windowing.so / libpango_image.so on at least one machine);
+# fall back to ~/Pangolin/build which has the full set.
+PANGOLIN_BUILD="${PANGOLIN_BUILD:-$HOME/Pangolin/build}"
+export LD_LIBRARY_PATH="$ORB_SLAM3_ROOT_DIR/lib:$ORB_SLAM3_ROOT_DIR/Thirdparty/DBoW2/lib:$ORB_SLAM3_ROOT_DIR/Thirdparty/g2o/lib:$PANGOLIN_BUILD:$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
 
 cd "$RUN_DIR"
 

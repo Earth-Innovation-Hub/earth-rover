@@ -30,7 +30,7 @@ defaults:
   earth_rover_home: /home/jdas/earth-rover
   pixhawk_device: /dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0
   pixhawk_baud: "921600"
-  gcs_url: udp://192.168.1.7:14550
+  gcs_url: udp://@192.168.0.6:14550
 
 # ----- service catalog --------------------------------------------------------
 services:

@@ -577,15 +577,6 @@ cd ~/earth-rover
 ORBSLAM3_NO_VIEWER=1 ./scripts/run_orbslam3_right_rosbag.sh --bag <bag> ...
 ```
 
-If your shell has **bash nounset** (`set -u` in `.bashrc`), sourcing the workspace hits
-`COLCON_TRACE: unbound variable` inside colcon’s `install/setup.bash`. Either run the
-wrapper above (it exports a default `COLCON_TRACE`), or before manual `source` lines run:
-
-```bash
-export COLCON_TRACE=
-# or:  set +u; source ~/ros2_ws/install/setup.bash; set -u
-```
-
 **Prerequisites:**
 
 - ROS 2 **Jazzy** on `PATH`; workspace sourced: `source ~/ros2_ws/install/setup.bash`
@@ -603,6 +594,14 @@ export COLCON_TRACE=
 **Outputs:** `reports/orbslam3_right/<bag_basename>/` receives
 `*_CameraTrajectory.txt`, `*_KeyFrameTrajectory.txt`, and log files. The script
 `cd`s there before launching so ORB-SLAM3 writes trajectories into that folder.
+
+**Troubleshooting:** If interactive `source ~/ros2_ws/install/setup.bash` fails with
+`COLCON_TRACE: unbound variable`, your shell has **Bash nounset** (`set -u`)
+enabled. Colcon's `setup.bash` expands `$COLCON_TRACE` without a default.
+Either run `set +u` before sourcing (then `set -u` again if you want), or
+`export COLCON_TRACE=` once per session. The wrapper script
+[`run_orbslam3_right_rosbag.sh`](scripts/run_orbslam3_right_rosbag.sh)
+temporarily disables nounset while sourcing ROS workspaces so it works either way.
 
 **Manual two-terminal workflow:** [`scripts/orbslam3_right_rosbag.launch.py`](scripts/orbslam3_right_rosbag.launch.py)
 (debayer + mono node only) in terminal 1, then

@@ -57,7 +57,7 @@ def generate_launch_description():
     
     gcs_url_arg = DeclareLaunchArgument(
         'gcs_url',
-        default_value='udp://192.168.1.7:14550',
+        default_value='udp://@192.168.0.6:14550',
         description='GCS connection URL'
     )
     
@@ -239,7 +239,7 @@ def launch_setup(context, *args, **kwargs):
             # Get vehicle parameters with validation
             fcu_url = str(context.launch_configurations.get('fcu_url', 
                 '/dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0:921600'))
-            gcs_url = str(context.launch_configurations.get('gcs_url', 'udp://192.168.1.7:14550'))
+            gcs_url = str(context.launch_configurations.get('gcs_url', 'udp://@192.168.0.6:14550'))
             
             # Validate URLs
             if not fcu_url:
