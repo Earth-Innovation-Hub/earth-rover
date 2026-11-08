@@ -25,6 +25,10 @@ from sensor_msgs.msg import NavSatFix
 from std_msgs.msg import Float64
 
 FRESH_SEC = 5.0  # a GPS fix older than this is not posted
+HEADING_FRESH_SEC = 3.0
+# Without a compass heading, the direction of travel stands in once the rover moves this fast;
+# below it the velocity direction is GPS noise. The last course is kept while it stops.
+COURSE_MIN_SPEED = 0.5
 
 
 class DeepGISPosePublisher(Node):
@@ -54,6 +58,8 @@ class DeepGISPosePublisher(Node):
         self.fix = None
         self.fix_t = 0.0
         self.heading = None
+        self.heading_t = 0.0
+        self.course = None
         self.speed = None
         self.armed = None
         self.failures = 0
@@ -72,11 +78,13 @@ class DeepGISPosePublisher(Node):
             self.fix, self.fix_t = msg, time.monotonic()
 
     def on_heading(self, msg):
-        self.heading = float(msg.data)
+        self.heading, self.heading_t = float(msg.data), time.monotonic()
 
     def on_velocity(self, msg):
-        v = msg.twist.linear
+        v = msg.twist.linear  # ENU: x east, y north
         self.speed = math.hypot(v.x, v.y)
+        if self.speed >= COURSE_MIN_SPEED:
+            self.course = math.degrees(math.atan2(v.x, v.y)) % 360.0
 
     def on_state(self, msg):
         self.armed = bool(msg.armed)
@@ -87,8 +95,11 @@ class DeepGISPosePublisher(Node):
         pose = {**self.vehicle, 'lat': self.fix.latitude, 'lon': self.fix.longitude}
         if math.isfinite(self.fix.altitude):
             pose['alt_amsl'] = self.fix.altitude
-        if self.heading is not None and math.isfinite(self.heading):
+        if (self.heading is not None and math.isfinite(self.heading)
+                and time.monotonic() - self.heading_t <= HEADING_FRESH_SEC):
             pose['heading_deg'] = self.heading
+        elif self.course is not None:
+            pose['heading_deg'] = self.course
         if self.speed is not None and math.isfinite(self.speed):
             pose['speed_mps'] = self.speed
         if self.armed is not None:
