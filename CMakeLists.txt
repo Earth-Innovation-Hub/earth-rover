@@ -58,6 +58,7 @@ install(DIRECTORY config
 install(PROGRAMS 
   scripts/test_gps_publisher.py
   scripts/deepgis_telemetry_publisher.py
+  scripts/deepgis_pose_publisher.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

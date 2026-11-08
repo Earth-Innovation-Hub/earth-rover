@@ -538,9 +538,9 @@ class DeepGISTelemetryPublisher(Node):
                                len(self.gps_raw_buffer) +
                                len(self.gps_estimated_buffer))
 
-                if total_samples >= self.batch_size:
-                    # send_batch() will update last_batch_flush_time
-                    self.send_batch()
+            # send_batch() takes buffer_lock itself (non-reentrant), so call it after releasing
+            if total_samples >= self.batch_size:
+                self.send_batch()
         else:
             # Real-time mode: send data immediately
             if odom:
