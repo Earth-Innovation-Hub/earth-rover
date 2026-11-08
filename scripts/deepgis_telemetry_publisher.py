@@ -2,9 +2,24 @@
 """
 DeepGIS Telemetry Publisher Node
 
-Subscribes to MAVROS telemetry topics and publishes data to DeepGIS API
-in compliance with the DeepGIS Telemetry API specification.
+Subscribes to MAVROS telemetry topics and logs them to the DeepGIS telemetry API.
+
+Every sample is written to a local SQLite spool first; an uploader thread sends the
+oldest samples as gzip batches, at most upload_kbps, and deletes them only once the
+server has stored them. A link outage (Starlink standby, no signal, a server restart)
+therefore delays samples instead of losing them. The server keeps one record per
+(session, timestamp_usec), so a batch resent after an unclear failure is harmless.
+
+One session per boot: the session id is kept with the boot id in the state directory,
+so restarting the node continues the same session. While the vehicle is parked (slower
+than stationary_speed and within stationary_radius_m of the last logged position) it is
+logged every stationary_interval seconds instead of at publish_rate.
 """
+
+import gzip
+import os
+import sqlite3
+import threading
 
 import rclpy
 from rclpy.node import Node
@@ -18,9 +33,93 @@ from std_msgs.msg import UInt32
 import requests
 import json
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from threading import Lock
 import time
+
+KINDS = ('local_position_odom', 'gps_fix_raw', 'gps_fix_estimated')
+BACKOFF_MAX_SEC = 120.0
+
+
+class TelemetrySpool:
+    """Samples waiting for upload, in SQLite (WAL); one connection per thread."""
+
+    def __init__(self, path, max_rows):
+        self.path = path
+        self.max_rows = max_rows
+        self.local = threading.local()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        db = self.db()
+        db.execute('PRAGMA journal_mode=WAL')
+        db.execute('CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, '
+                   'session_id TEXT NOT NULL, ts_usec INTEGER NOT NULL, payload TEXT NOT NULL, '
+                   'UNIQUE (kind, session_id, ts_usec))')
+        db.commit()
+
+    def db(self):
+        if not hasattr(self.local, 'db'):
+            self.local.db = sqlite3.connect(self.path, timeout=10)
+        return self.local.db
+
+    def add(self, rows):
+        """rows: [(kind, payload dict)]; a sample already spooled is ignored."""
+        db = self.db()
+        db.executemany('INSERT OR IGNORE INTO samples (kind, session_id, ts_usec, payload) VALUES (?, ?, ?, ?)',
+                       [(k, p['session_id'], p['timestamp_usec'], json.dumps(p, separators=(',', ':')))
+                        for k, p in rows])
+        db.commit()
+
+    def oldest(self, limit):
+        return self.db().execute('SELECT id, kind, payload FROM samples ORDER BY id LIMIT ?', (limit,)).fetchall()
+
+    def delete(self, ids):
+        db = self.db()
+        db.executemany('DELETE FROM samples WHERE id = ?', [(i,) for i in ids])
+        db.commit()
+
+    def count(self):
+        return self.db().execute('SELECT COUNT(*) FROM samples').fetchone()[0]
+
+    def trim(self):
+        """Drop the oldest samples beyond max_rows (weeks offline); returns how many."""
+        extra = self.count() - self.max_rows
+        if extra <= 0:
+            return 0
+        db = self.db()
+        db.execute('DELETE FROM samples WHERE id IN (SELECT id FROM samples ORDER BY id LIMIT ?)', (extra,))
+        db.commit()
+        return extra
+
+
+def stamp_fields(msg):
+    """timestamp (UTC ISO 8601) and timestamp_usec from the message header, or now if unstamped."""
+    usec = msg.header.stamp.sec * 1000000 + msg.header.stamp.nanosec // 1000
+    if usec <= 0:
+        usec = time.time_ns() // 1000
+    return {'timestamp': datetime.fromtimestamp(usec / 1e6, timezone.utc).isoformat(),
+            'timestamp_usec': usec}
+
+
+def boot_session_id(state_dir, prefix):
+    """The session id for this boot, created on first use and reused after restarts."""
+    try:
+        with open('/proc/sys/kernel/random/boot_id') as f:
+            boot_id = f.read().strip()
+    except OSError:
+        boot_id = ''
+    path = os.path.join(state_dir, 'telemetry_session.json')
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+        if boot_id and saved.get('boot_id') == boot_id and saved.get('session_id'):
+            return saved['session_id']
+    except (OSError, ValueError):
+        pass
+    session_id = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    os.makedirs(state_dir, exist_ok=True)
+    with open(path, 'w') as f:
+        json.dump({'boot_id': boot_id, 'session_id': session_id}, f)
+    return session_id
 
 
 class DeepGISTelemetryPublisher(Node):
@@ -43,26 +142,36 @@ class DeepGISTelemetryPublisher(Node):
         self.declare_parameter('notes', 'Automated telemetry collection from MAVROS')
         self.declare_parameter('mavros_namespace', '/mavros')
         self.declare_parameter('publish_rate', 1.0)
-        self.declare_parameter('batch_size', 10)
-        self.declare_parameter('enable_batch_mode', True)
-        self.declare_parameter('batch_flush_interval', 5.0)  # Flush batches every N seconds even if not full
+        state_dir = os.path.expanduser('~/.local/share/earth-rover')
+        self.declare_parameter('spool_path', os.path.join(state_dir, 'telemetry_spool.sqlite'))
+        self.declare_parameter('spool_max_rows', 2000000)  # ~11 days of 1 Hz odom + GPS offline
+        self.declare_parameter('upload_interval', 5.0)  # seconds between batches once caught up
+        self.declare_parameter('upload_kbps', 50.0)  # cap on compressed upload rate
+        self.declare_parameter('max_batch_rows', 600)
+        self.declare_parameter('stationary_interval', 10.0)
+        self.declare_parameter('stationary_speed', 0.2)
+        self.declare_parameter('stationary_radius_m', 2.0)
         
         # Get parameters
         self.api_url = self.get_parameter('deepgis_api_url').value
         self.api_key = self.get_parameter('api_key').value
         self.asset_name = self.get_parameter('asset_name').value
         session_id_param = self.get_parameter('session_id').value
-        self.session_id = session_id_param if session_id_param else \
-                         f"mavros_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.session_id = session_id_param or boot_session_id(state_dir, self.asset_name)
         self.project_title = self.get_parameter('project_title').value
         self.flight_mode = self.get_parameter('flight_mode').value
         self.mission_type = self.get_parameter('mission_type').value
         self.notes = self.get_parameter('notes').value
         self.mavros_ns = self.get_parameter('mavros_namespace').value
         self.publish_rate = self.get_parameter('publish_rate').value
-        self.batch_size = self.get_parameter('batch_size').value
-        self.enable_batch = self.get_parameter('enable_batch_mode').value
-        self.batch_flush_interval = self.get_parameter('batch_flush_interval').value
+        self.upload_interval = float(self.get_parameter('upload_interval').value)
+        self.upload_bps = max(1.0, float(self.get_parameter('upload_kbps').value)) * 1000.0
+        self.max_batch_rows = int(self.get_parameter('max_batch_rows').value)
+        self.stationary_interval = float(self.get_parameter('stationary_interval').value)
+        self.stationary_speed = float(self.get_parameter('stationary_speed').value)
+        self.stationary_radius_m = float(self.get_parameter('stationary_radius_m').value)
+        self.spool = TelemetrySpool(os.path.expanduser(self.get_parameter('spool_path').value),
+                                    int(self.get_parameter('spool_max_rows').value))
 
         # API endpoints
         self.api_endpoints = {
@@ -73,8 +182,8 @@ class DeepGISTelemetryPublisher(Node):
             'batch': f'{self.api_url}/api/telemetry/batch/',
         }
 
-        # Session management
-        self.session_active = False
+        # Sessions the server has confirmed (the uploader creates them before their first batch)
+        self.sessions_created = set()
 
         # Reference position (set from first valid GPS fix)
         self.ref_lat = None
@@ -85,12 +194,9 @@ class DeepGISTelemetryPublisher(Node):
         # Satellite count
         self.satellites_visible = 0
 
-        # Data buffers for batch mode
-        self.local_position_buffer = []
-        self.gps_raw_buffer = []
-        self.gps_estimated_buffer = []
-        self.buffer_lock = Lock()
-        self.last_batch_flush_time = time.time()  # Track when we last flushed a batch
+        # Parked-vehicle deadband: where and when the last sample was logged
+        self.last_logged_t = 0.0
+        self.last_logged_fix = None
 
         # Latest data storage
         self.latest_odom = None
@@ -154,29 +260,21 @@ class DeepGISTelemetryPublisher(Node):
             self.http_session.headers.update({'Authorization': f'Bearer {self.api_key}'})
         self.http_session.headers.update({'Content-Type': 'application/json'})
 
-        # Create telemetry session
-        self.create_telemetry_session()
-
-        # Publisher timer
+        # Sampling timer (ROS executor) and uploader thread (network)
         self.publish_timer = self.create_timer(
             1.0 / self.publish_rate,
             self.publish_telemetry
         )
-        
-        # Batch flush timer (for periodic flushing even if batch not full)
-        if self.enable_batch:
-            self.batch_flush_timer = self.create_timer(
-                self.batch_flush_interval,
-                self.flush_batch_if_needed
-            )
-        else:
-            self.batch_flush_timer = None
+        self.stop_upload = threading.Event()
+        self.uploader = threading.Thread(target=self.upload_loop, name='deepgis-uploader', daemon=True)
+        self.uploader.start()
 
         self.get_logger().info('DeepGIS Telemetry Publisher initialized')
         self.get_logger().info(f'API URL: {self.api_url}')
         self.get_logger().info(f'Asset Name: {self.asset_name}')
         self.get_logger().info(f'Session ID: {self.session_id}')
-        self.get_logger().info(f'Batch Mode: {self.enable_batch}')
+        self.get_logger().info(f'Spool: {self.spool.path} ({self.spool.count()} samples waiting), '
+                               f'upload cap {self.upload_bps / 1000:.0f} kbit/s')
 
     def log_error_response(self, response, endpoint_name, request_url=None):
         """
@@ -211,11 +309,11 @@ class DeepGISTelemetryPublisher(Node):
         
         self.get_logger().error(error_msg)
 
-    def create_telemetry_session(self):
-        """Create a new telemetry session with DeepGIS API (API compliant format)."""
+    def create_telemetry_session(self, session_id):
+        """Create (or confirm) a telemetry session on the server; True once it exists there."""
         try:
             payload = {
-                'session_id': self.session_id,
+                'session_id': session_id,
                 'asset_name': self.asset_name,
                 'project_title': self.project_title,
                 'flight_mode': self.flight_mode,
@@ -230,17 +328,16 @@ class DeepGISTelemetryPublisher(Node):
             )
 
             if response.status_code in [200, 201]:
-                self.session_active = True
-                self.get_logger().info(f'Created telemetry session: {self.session_id}')
-            else:
-                self.log_error_response(response, 'create_session', self.api_endpoints['create_session'])
+                verb = 'Created' if response.status_code == 201 else 'Continuing'
+                self.get_logger().info(f'{verb} telemetry session: {session_id}')
+                return True
+            self.log_error_response(response, 'create_session', self.api_endpoints['create_session'])
 
         except requests.exceptions.RequestException as e:
-            self.get_logger().error(f'Error creating telemetry session: {str(e)}')
-            if hasattr(e, 'response') and e.response is not None:
-                self.log_error_response(e.response, 'create_session', self.api_endpoints['create_session'])
+            self.get_logger().warn(f'Session {session_id} not created yet: {type(e).__name__}')
         except Exception as e:
             self.get_logger().error(f'Unexpected error creating session: {str(e)}')
+        return False
 
     def quaternion_to_heading(self, x, y, z, w):
         """
@@ -392,8 +489,7 @@ class DeepGISTelemetryPublisher(Node):
             if data_hash == self.last_formatted_odom_hash and self.last_formatted_odom is not None:
                 # Data unchanged, return cached formatted data with updated timestamp
                 result = self.last_formatted_odom.copy()
-                result['timestamp'] = datetime.now().isoformat()
-                result['timestamp_usec'] = msg.header.stamp.sec * 1000000 + msg.header.stamp.nanosec // 1000
+                result.update(stamp_fields(msg))
                 return result
         
         # Convert quaternion to heading
@@ -408,13 +504,10 @@ class DeepGISTelemetryPublisher(Node):
         position_cov = self.extract_covariance_3x3(msg.pose.covariance, 0)
         velocity_cov = self.extract_covariance_3x3(msg.twist.covariance, 0)
         
-        # Convert ROS timestamp to microseconds
-        timestamp_usec = msg.header.stamp.sec * 1000000 + msg.header.stamp.nanosec // 1000
         
         result = {
             'session_id': self.session_id,
-            'timestamp': datetime.now().isoformat(),
-            'timestamp_usec': timestamp_usec,
+            **stamp_fields(msg),
             'x': float(msg.pose.pose.position.x),
             'y': float(msg.pose.pose.position.y),
             'z': float(msg.pose.pose.position.z),
@@ -459,8 +552,7 @@ class DeepGISTelemetryPublisher(Node):
             if data_hash == cache_hash and cached_data is not None:
                 # Data unchanged, return cached formatted data with updated timestamp
                 result = cached_data.copy()
-                result['timestamp'] = datetime.now().isoformat()
-                result['timestamp_usec'] = msg.header.stamp.sec * 1000000 + msg.header.stamp.nanosec // 1000
+                result.update(stamp_fields(msg))
                 result['satellites_visible'] = int(self.satellites_visible)  # This can change
                 return result
         
@@ -470,13 +562,10 @@ class DeepGISTelemetryPublisher(Node):
         # Map fix type
         fix_type = self.map_gps_fix_type(msg.status.status)
         
-        # Convert ROS timestamp to microseconds
-        timestamp_usec = msg.header.stamp.sec * 1000000 + msg.header.stamp.nanosec // 1000
         
         result = {
             'session_id': self.session_id,
-            'timestamp': datetime.now().isoformat(),
-            'timestamp_usec': timestamp_usec,
+            **stamp_fields(msg),
             'latitude': float(msg.latitude),
             'longitude': float(msg.longitude),
             'altitude': float(msg.altitude),
@@ -497,155 +586,144 @@ class DeepGISTelemetryPublisher(Node):
         
         return result
 
-    def flush_batch_if_needed(self):
-        """Periodically flush batches even if they're not full."""
-        if not self.session_active:
-            return
-        
-        # Timer fires at the right interval, so just flush if we have data
-        # send_batch() checks for empty buffers and returns early if nothing to send
-        self.send_batch()
+    def _parked(self, odom, fix, now):
+        """True while the vehicle is slow and near the last logged fix, and that was recent."""
+        if self.last_logged_fix is None or now - self.last_logged_t >= self.stationary_interval:
+            return False
+        if odom is not None:
+            v = odom.twist.twist.linear
+            if math.hypot(v.x, v.y) >= self.stationary_speed:
+                return False
+        if fix is None:
+            return odom is not None
+        lat0, lon0 = self.last_logged_fix
+        dn = math.radians(fix.latitude - lat0) * 6371000.0
+        de = math.radians(fix.longitude - lon0) * 6371000.0 * math.cos(math.radians(lat0))
+        return math.hypot(dn, de) < self.stationary_radius_m
 
     def publish_telemetry(self):
-        """Publish telemetry data to DeepGIS API."""
-        if not self.session_active:
-            return
-
-        # Get data references quickly (minimal lock time)
+        """Spool the latest samples (at publish_rate, or every stationary_interval when parked)."""
         with self.data_lock:
             odom = self.latest_odom
             gps_raw = self.latest_gps_raw
             gps_estimated = self.latest_gps_estimated
+        fix = gps_raw if gps_raw is not None and gps_raw.status.status >= 0 else None
+        now = time.monotonic()
+        if self._parked(odom, fix, now):
+            return
 
-        if self.enable_batch:
-            # Batch mode: accumulate data and send in batches
-            # Format data outside the lock to reduce contention
-            formatted_odom = self.format_odom_data(odom) if odom else None
-            formatted_gps_raw = self.format_gps_data(gps_raw, is_raw=True) if gps_raw else None
-            formatted_gps_estimated = self.format_gps_data(gps_estimated, is_raw=False) if gps_estimated else None
-            
-            # Now add to buffers with minimal lock time
-            with self.buffer_lock:
-                if formatted_odom:
-                    self.local_position_buffer.append(formatted_odom)
-                if formatted_gps_raw:
-                    self.gps_raw_buffer.append(formatted_gps_raw)
-                if formatted_gps_estimated:
-                    self.gps_estimated_buffer.append(formatted_gps_estimated)
-
-                # Check if we should send a batch immediately (when threshold reached)
-                total_samples = (len(self.local_position_buffer) +
-                               len(self.gps_raw_buffer) +
-                               len(self.gps_estimated_buffer))
-
-            # send_batch() takes buffer_lock itself (non-reentrant), so call it after releasing
-            if total_samples >= self.batch_size:
-                self.send_batch()
-        else:
-            # Real-time mode: send data immediately
-            if odom:
-                self.send_local_position(self.format_odom_data(odom, use_cache=False))
-            if gps_raw:
-                self.send_gps_raw(self.format_gps_data(gps_raw, use_cache=False, is_raw=True))
-            if gps_estimated:
-                self.send_gps_estimated(self.format_gps_data(gps_estimated, use_cache=False, is_raw=False))
-
-    def send_local_position(self, data):
-        """Send local position data to API."""
+        rows = []
+        if odom:
+            rows.append(('local_position_odom', self.format_odom_data(odom)))
+        if gps_raw:
+            rows.append(('gps_fix_raw', self.format_gps_data(gps_raw, is_raw=True)))
+        if gps_estimated:
+            rows.append(('gps_fix_estimated', self.format_gps_data(gps_estimated, is_raw=False)))
+        if not rows:
+            return
         try:
-            response = self.http_session.post(
-                self.api_endpoints['local_position'],
-                json=data,
-                timeout=5.0
-            )
-            if response.status_code not in [200, 201]:
-                self.log_error_response(response, 'local_position', self.api_endpoints['local_position'])
-        except requests.exceptions.RequestException as e:
-            self.get_logger().warn(f'Error sending local position: {str(e)}')
-            if hasattr(e, 'response') and e.response is not None:
-                self.log_error_response(e.response, 'local_position', self.api_endpoints['local_position'])
+            self.spool.add(rows)
+        except sqlite3.Error as e:
+            self.get_logger().error(f'Could not spool telemetry: {e}')
+            return
+        self.last_logged_t = now
+        if fix is not None:
+            self.last_logged_fix = (fix.latitude, fix.longitude)
 
-    def send_gps_raw(self, data):
-        """Send raw GPS data to API."""
-        try:
-            response = self.http_session.post(
-                self.api_endpoints['gps_raw'],
-                json=data,
-                timeout=5.0
-            )
-            if response.status_code not in [200, 201]:
-                self.log_error_response(response, 'gps_raw', self.api_endpoints['gps_raw'])
-        except requests.exceptions.RequestException as e:
-            self.get_logger().warn(f'Error sending GPS raw: {str(e)}')
-            if hasattr(e, 'response') and e.response is not None:
-                self.log_error_response(e.response, 'gps_raw', self.api_endpoints['gps_raw'])
+    def upload_loop(self):
+        """Drain the spool oldest-first: gzip batches, at most upload_bps, backing off when the link fails."""
+        limit = self.max_batch_rows
+        backoff = 0.0
+        next_trim = 0.0
+        while not self.stop_upload.is_set():
+            if time.monotonic() >= next_trim:
+                next_trim = time.monotonic() + 60.0
+                try:
+                    dropped = self.spool.trim()
+                    if dropped:
+                        self.get_logger().warn(f'Spool full: dropped the {dropped} oldest samples')
+                except sqlite3.Error as e:
+                    self.get_logger().error(f'Spool trim failed: {e}')
+            try:
+                outcome, sent_bytes, rows = self.upload_once(limit)
+            except Exception as e:
+                self.get_logger().error(f'Uploader error: {e}')
+                outcome, sent_bytes, rows = 'retry', 0, 0
 
-    def send_gps_estimated(self, data):
-        """Send estimated GPS data to API."""
-        try:
-            response = self.http_session.post(
-                self.api_endpoints['gps_estimated'],
-                json=data,
-                timeout=5.0
-            )
-            if response.status_code not in [200, 201]:
-                self.log_error_response(response, 'gps_estimated', self.api_endpoints['gps_estimated'])
-        except requests.exceptions.RequestException as e:
-            self.get_logger().warn(f'Error sending GPS estimated: {str(e)}')
-            if hasattr(e, 'response') and e.response is not None:
-                self.log_error_response(e.response, 'gps_estimated', self.api_endpoints['gps_estimated'])
-
-    def send_batch(self):
-        """Send accumulated data in batch (API compliant format)."""
-        # Quick check and data extraction with minimal lock time
-        with self.buffer_lock:
-            if not (self.local_position_buffer or self.gps_raw_buffer or self.gps_estimated_buffer):
-                return
-
-            # Move data out of buffers (more efficient than copy for large lists)
-            batch_data = {
-                'local_position_odom': self.local_position_buffer,
-                'gps_fix_raw': self.gps_raw_buffer,
-                'gps_fix_estimated': self.gps_estimated_buffer
-            }
-
-            count_odom = len(self.local_position_buffer)
-            count_raw = len(self.gps_raw_buffer)
-            count_est = len(self.gps_estimated_buffer)
-
-            # Clear buffers (create new lists instead of clearing to avoid reference issues)
-            self.local_position_buffer = []
-            self.gps_raw_buffer = []
-            self.gps_estimated_buffer = []
-            
-            # Update flush time
-            self.last_batch_flush_time = time.time()
-
-        try:
-            response = self.http_session.post(
-                self.api_endpoints['batch'],
-                json=batch_data,
-                timeout=10.0
-            )
-            if response.status_code in [200, 201]:
-                total_items = count_odom + count_raw + count_est
-                self.get_logger().info(
-                    f'Sent batch: {count_odom} odom, {count_raw} GPS raw, '
-                    f'{count_est} GPS est ({total_items} total)'
-                )
+            if outcome == 'retry':
+                backoff = min(BACKOFF_MAX_SEC, max(5.0, backoff * 2))
+                self.stop_upload.wait(backoff)
+                continue
+            backoff = 0.0
+            if outcome == 'shrink':
+                limit = max(1, rows // 2)
+                continue
+            pause = sent_bytes * 8.0 / self.upload_bps
+            if outcome == 'sent':
+                if rows < limit:
+                    pause = max(pause, self.upload_interval)
+                limit = min(self.max_batch_rows, limit * 2)
             else:
-                self.log_error_response(response, 'batch', self.api_endpoints['batch'])
+                pause = self.upload_interval
+            self.stop_upload.wait(pause)
+
+    def upload_once(self, limit):
+        """Send one batch; returns (outcome, compressed bytes sent, rows in the batch)."""
+        rows = self.spool.oldest(limit)
+        if not rows:
+            return 'idle', 0, 0
+        batch = {kind: [] for kind in KINDS}
+        sessions = set()
+        for _id, kind, payload in rows:
+            record = json.loads(payload)
+            batch[kind].append(record)
+            sessions.add(record['session_id'])
+        for session_id in sorted(sessions - self.sessions_created):
+            if not self.create_telemetry_session(session_id):
+                return 'retry', 0, len(rows)
+            self.sessions_created.add(session_id)
+
+        body = gzip.compress(json.dumps(batch, separators=(',', ':')).encode())
+        url = self.api_endpoints['batch']
+        try:
+            response = self.http_session.post(url, data=body, timeout=30.0,
+                                              headers={'Content-Encoding': 'gzip'})
         except requests.exceptions.RequestException as e:
-            self.get_logger().error(f'Error sending batch: {str(e)}')
-            if hasattr(e, 'response') and e.response is not None:
-                self.log_error_response(e.response, 'batch', self.api_endpoints['batch'])
+            self.get_logger().warn(f'Batch upload failed ({type(e).__name__}); '
+                                   f'{self.spool.count()} samples waiting')
+            return 'retry', 0, len(rows)
+
+        ids = [r[0] for r in rows]
+        if response.status_code in (201, 207):
+            self.spool.delete(ids)
+            try:
+                results = response.json().get('results', {})
+            except ValueError:
+                results = {}
+            created = sum(r.get('created', 0) for r in results.values())
+            dups = sum(r.get('duplicates', 0) for r in results.values())
+            errors = sum(len(r.get('errors', [])) for r in results.values())
+            msg = f'Uploaded {len(rows)} samples in {len(body)} B: {created} new, {dups} already stored'
+            if errors:
+                self.get_logger().warn(f'{msg}, {errors} rejected; first: '
+                                       f'{next(e for r in results.values() for e in r.get("errors", []))}')
+            else:
+                self.get_logger().info(msg)
+            return 'sent', len(body), len(rows)
+        if response.status_code in (400, 413):
+            if len(rows) > 1:
+                return 'shrink', 0, len(rows)
+            self.get_logger().error(f'Server rejects one sample outright, dropping it: {rows[0][2][:200]}')
+            self.spool.delete(ids)
+            return 'sent', len(body), 1
+        self.log_error_response(response, 'batch', url)
+        return 'retry', 0, len(rows)
 
     def destroy_node(self):
-        """Cleanup before node shutdown."""
-        # Send any remaining buffered data
-        if self.enable_batch:
-            self.send_batch()
-        
+        """Cleanup before node shutdown; unsent samples stay in the spool for the next run."""
+        self.stop_upload.set()
+        self.uploader.join(timeout=10.0)
+
         # Close HTTP session
         try:
             self.http_session.close()
@@ -669,7 +747,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():  # SIGTERM has already shut the context down
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

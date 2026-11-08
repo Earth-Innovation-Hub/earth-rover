@@ -47,22 +47,6 @@ ros2 launch deepgis_vehicles deepgis_telemetry.launch.py \
     api_key:=your_api_key_here
 ```
 
-### Real-time Mode (Lower Latency)
-
-```bash
-ros2 launch deepgis_vehicles deepgis_telemetry.launch.py \
-    enable_batch_mode:=false \
-    publish_rate:=10.0
-```
-
-### High-Frequency Batch Mode
-
-```bash
-ros2 launch deepgis_vehicles deepgis_telemetry.launch.py \
-    publish_rate:=10.0 \
-    batch_size:=50
-```
-
 ### Full System with MAVROS
 
 ```bash
@@ -83,8 +67,15 @@ ros2 launch deepgis_vehicles deepgis_telemetry.launch.py vehicle_id:=pixhawk_001
 | `session_name` | string | `""` | Session name (auto-generated if empty) |
 | `mavros_namespace` | string | `/mavros` | MAVROS namespace to subscribe to |
 | `publish_rate` | float | `1.0` | Rate (Hz) to check and publish data |
-| `batch_size` | int | `10` | Number of samples before batch upload |
-| `enable_batch_mode` | bool | `true` | Enable batch mode vs real-time streaming |
+| `upload_kbps` | float | `50.0` | Cap on compressed upload rate (kbit/s) |
+| `upload_interval` | float | `5.0` | Seconds between batches once the spool is drained |
+| `max_batch_rows` | int | `600` | Most samples per batch |
+| `spool_path` | string | `~/.local/share/earth-rover/telemetry_spool.sqlite` | Local SQLite spool |
+| `spool_max_rows` | int | `2000000` | Oldest samples are dropped beyond this |
+| `stationary_interval` | float | `10.0` | Logging period (s) while parked |
+| `stationary_speed` | float | `0.2` | Below this speed (m/s) the vehicle may be parked |
+| `stationary_radius_m` | float | `2.0` | ...and within this distance (m) of the last logged fix |
+| `session_id` | string | `""` | Fixed session id; empty = one session per boot, `<asset>_<start time>` |
 
 ## API Endpoints Used
 
@@ -151,38 +142,27 @@ The node subscribes to these MAVROS topics:
 - `{mavros_namespace}/global_position/raw/fix` (sensor_msgs/NavSatFix)
 - `{mavros_namespace}/global_position/global` (sensor_msgs/NavSatFix)
 
-## Performance Considerations
+## Logging Over Weak Links
 
-### Batch Mode (Recommended)
-- **Pros**: Lower network overhead, fewer API calls, more efficient
-- **Cons**: Slightly higher latency (data sent in groups)
-- **Best for**: Normal flight operations, post-flight analysis
+Every sample goes into a local SQLite spool before anything is sent. An uploader thread sends
+the oldest samples as one gzip-compressed batch (`Content-Encoding: gzip`) to
+`/api/telemetry/batch/`, sleeps long enough to stay under `upload_kbps`, and deletes the samples
+only after the server answers 201 or 207. While the link is down (no signal, a Starlink dish in
+standby, the server restarting) samples wait in the spool and the uploader retries with backoff
+from 5 s to 2 min, so an outage delays data rather than losing it.
 
-### Real-time Mode
-- **Pros**: Minimal latency, immediate data availability
-- **Cons**: Higher network bandwidth, more API calls
-- **Best for**: Critical monitoring, live demonstrations
+The server keeps one record per `(session, timestamp_usec)`, so a batch resent after an unclear
+failure is stored once. The session id is saved with the kernel boot id, so restarting the node
+continues the same session; a reboot starts a new one. Timestamps come from the MAVROS message
+header, in UTC.
 
-### Recommended Settings
+Bandwidth: a parked rover sends ~470 B every 10 s (~0.4 kbit/s); at 1 Hz while moving, ~2 kbit/s.
+A backlog drains at up to `upload_kbps`.
 
-**Normal Operation:**
-```yaml
-publish_rate: 1.0      # 1 Hz
-batch_size: 10         # 10 samples per batch
-enable_batch_mode: true
-```
-
-**High-Frequency Logging:**
-```yaml
-publish_rate: 10.0     # 10 Hz
-batch_size: 50         # 50 samples per batch
-enable_batch_mode: true
-```
-
-**Real-time Monitoring:**
-```yaml
-publish_rate: 5.0      # 5 Hz
-enable_batch_mode: false
+Inspect the spool:
+```bash
+python3 -c "import sqlite3,os; db=sqlite3.connect(os.path.expanduser('~/.local/share/earth-rover/telemetry_spool.sqlite')); print(db.execute('select kind,count(*) from samples group by kind').fetchall())"
+journalctl --user -u er-deepgis-telemetry -f | grep -E 'Uploaded|failed'
 ```
 
 ## Troubleshooting
@@ -198,9 +178,8 @@ enable_batch_mode: false
 - Verify data is flowing: `ros2 topic echo /mavros/local_position/odom`
 
 ### High network usage
-- Switch to batch mode: `enable_batch_mode:=true`
-- Reduce publish rate: `publish_rate:=1.0`
-- Increase batch size: `batch_size:=50`
+- Lower `upload_kbps` (backlogs drain more slowly; live samples still go out)
+- Raise `stationary_interval`, or lower `publish_rate`
 
 ## Development
 

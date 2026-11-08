@@ -21,9 +21,15 @@ deepgis_telemetry_publisher:
     # Telemetry Publishing Settings
     publish_rate: 1.0  # Hz - how often to check for new data and publish/batch
     
-    # Batch Mode Settings
-    enable_batch_mode: true  # true = batch uploads, false = real-time streaming
-    batch_size: 10  # Number of samples to accumulate before sending batch
-    
-    # Note: Batch mode is more efficient for bandwidth and reduces API calls.
-    # Real-time mode provides lower latency but increases network traffic.
+    # Spool and upload (samples are stored locally first, then uploaded oldest-first)
+    upload_kbps: 50.0  # cap on compressed upload rate; ~0.5-2 kbit/s is used in steady state
+    upload_interval: 5.0  # seconds between batches once the spool is drained
+    max_batch_rows: 600
+    spool_max_rows: 2000000  # oldest samples are dropped beyond this (~11 days offline at 1 Hz)
+    # spool_path: ~/.local/share/earth-rover/telemetry_spool.sqlite
+
+    # Parked vehicle: log every stationary_interval s while slower than stationary_speed (m/s)
+    # and within stationary_radius_m (m) of the last logged fix
+    stationary_interval: 10.0
+    stationary_speed: 0.2
+    stationary_radius_m: 2.0
