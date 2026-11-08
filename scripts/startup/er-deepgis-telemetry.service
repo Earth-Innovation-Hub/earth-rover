@@ -1,0 +1,26 @@
+# Hand-written sidecar (not generated from mission.yaml); part of er-deepgis.target.
+# Settings and the ingest token are in the mode-600 params file, never on the command line.
+[Unit]
+Description=DeepGIS telemetry publisher (MAVROS odom + GPS to the portal)
+PartOf=er-deepgis.target
+After=er-deepgis-mavros.service
+Wants=er-deepgis-mavros.service
+Conflicts=er-deepgis-gps.service
+
+[Service]
+Type=simple
+Environment="PARAMS=%h/.config/earth-rover/deepgis_telemetry.params.yaml"
+Environment="PORTAL_URL=https://deepgis.org"
+# Site-specific overrides (PORTAL_URL, matching deepgis_api_url in PARAMS); mode 600, not in git
+EnvironmentFile=-%h/.config/earth-rover/deepgis.env
+# The publisher opens its session once at start, so wait until the portal answers
+ExecStartPre=/bin/bash -c 'until curl -s -o /dev/null -m 5 "$PORTAL_URL/api/telemetry/"; do sleep 10; done'
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash; source $HOME/ros2_ws/install/setup.bash; exec ros2 run deepgis_vehicles deepgis_telemetry_publisher.py --ros-args --params-file "$PARAMS"'
+Restart=always
+RestartSec=15
+TimeoutStartSec=infinity
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=er-deepgis.target

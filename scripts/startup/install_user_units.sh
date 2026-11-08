@@ -76,7 +76,8 @@ python3 "${EARTH_ROVER_HOME}/scripts/startup/install_user_units.py" \
 # ---- Hand-written sidecar units (kept alongside the auto-generated ones) ----
 # These are NOT part of the mission graph -- they cover periodic maintenance
 # like the SSD->NAS archive rsync.
-for sidecar in er-rsync-archive.service er-rsync-archive.timer; do
+for sidecar in er-rsync-archive.service er-rsync-archive.timer \
+        er-deepgis.target er-deepgis-mavros.service er-deepgis-telemetry.service er-deepgis-pose.service; do
     src="${EARTH_ROVER_HOME}/scripts/startup/${sidecar}"
     if [ -f "$src" ]; then
         install -m 0644 "$src" "${USER_UNIT_DIR}/${sidecar}"

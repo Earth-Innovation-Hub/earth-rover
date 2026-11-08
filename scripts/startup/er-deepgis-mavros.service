@@ -1,0 +1,21 @@
+# Hand-written sidecar (not generated from mission.yaml); part of er-deepgis.target.
+[Unit]
+Description=MAVROS for the DeepGIS link (Pixhawk over FTDI)
+PartOf=er-deepgis.target
+Conflicts=er-mavros.service
+
+[Service]
+Type=simple
+Environment="PIXHAWK_DEVICE=/dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0"
+Environment="PIXHAWK_BAUD=921600"
+# The FTDI cable can enumerate after the user manager starts
+ExecStartPre=/bin/bash -c 'for i in $(seq 60); do [ -e "$PIXHAWK_DEVICE" ] && exit 0; sleep 2; done; echo "no Pixhawk at $PIXHAWK_DEVICE"; exit 1'
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash; source $HOME/ros2_ws/install/setup.bash; exec ros2 launch deepgis_vehicles vehicle_interface.launch.py fcu_url:=${PIXHAWK_DEVICE}:${PIXHAWK_BAUD}'
+Restart=always
+RestartSec=10
+TimeoutStartSec=180
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=er-deepgis.target

@@ -1,0 +1,12 @@
+# Hand-written sidecar (not generated from mission.yaml).
+# The DeepGIS link: MAVROS, the telemetry publisher and the pose publisher. This is the one
+# piece of the rover stack that starts at boot (lingering user manager):
+#   systemctl --user enable er-deepgis.target      # on at boot
+#   systemctl --user disable --now er-deepgis.target
+[Unit]
+Description=Earth Rover DeepGIS link (MAVROS + telemetry + pose)
+Wants=er-deepgis-mavros.service er-deepgis-telemetry.service er-deepgis-pose.service
+After=er-deepgis-mavros.service er-deepgis-telemetry.service er-deepgis-pose.service
+
+[Install]
+WantedBy=default.target

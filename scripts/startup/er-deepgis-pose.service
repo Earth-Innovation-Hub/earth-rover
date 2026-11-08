@@ -1,0 +1,22 @@
+# Hand-written sidecar (not generated from mission.yaml); part of er-deepgis.target.
+# Posts the rover's live position to DeepGIS; the key is read from its mode-600 key_file.
+[Unit]
+Description=DeepGIS pose publisher (rover on the DeepGIS globe)
+PartOf=er-deepgis.target
+After=er-deepgis-mavros.service
+Wants=er-deepgis-mavros.service
+
+[Service]
+Type=simple
+Environment="DEEPGIS_URL=https://deepgis.org"
+Environment="VEHICLE_ID=santacruz"
+# Site-specific overrides (DEEPGIS_URL, VEHICLE_ID); mode 600, not in git
+EnvironmentFile=-%h/.config/earth-rover/deepgis.env
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash; source $HOME/ros2_ws/install/setup.bash; exec ros2 run deepgis_vehicles deepgis_pose_publisher.py --ros-args -p deepgis_url:=$DEEPGIS_URL -p vehicle_id:=$VEHICLE_ID -p "name:=Earth Rover santacruz" -p platform:=rover -p site:=Tempe'
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=er-deepgis.target
