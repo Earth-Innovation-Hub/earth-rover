@@ -36,6 +36,16 @@ Pre-subscribe to topics that aren't up yet (e.g. cameras start later)::
 Add ad-hoc topics::
 
     ros2 launch deepgis_vehicles record_bag.launch.py extra_topics:=/foo,/bar
+
+LIO-friendly recording recipe (Velodyne + IMU + TF, drop heavy stereo)::
+
+    ros2 launch deepgis_vehicles record_bag.launch.py \
+        record_velodyne:=true \
+        record_mavros_imu:=true \
+        record_tf:=true \
+        record_stereo_compressed:=false \
+        record_stereo_raw:=false \
+        record_spectrometer:=false
 """
 
 import datetime as _dt
@@ -66,6 +76,7 @@ TOPIC_CLASSES = {
     ],
     'mavros_imu': [
         '/mavros/imu/data',
+        '/mavros/imu/data_raw',
         '/mavros/imu/mag',
         '/mavros/imu/diff_pressure',
         '/mavros/imu/static_pressure',
@@ -119,6 +130,26 @@ TOPIC_CLASSES = {
     ],
     'laser': [
         '/laser_distance',
+    ],
+    # Velodyne LiDAR. The full chain published by earth_rover_system.launch
+    # (driver -> velodyne_transform_node -> velodyne_laserscan_node with the
+    # /scan -> /velodyne/scan remap) yields three topics that are all worth
+    # capturing:
+    #   * /velodyne_packets - raw VelodyneScan, smallest + lossless. Required
+    #                         to reconstruct exact per-point timestamps for
+    #                         many LIO/SLAM stacks (e.g. LIO-SAM, FAST-LIO2)
+    #                         that do their own packet-to-cloud conversion.
+    #   * /velodyne_points  - PointCloud2, primary input for most LIO and
+    #                         RViz visualization.
+    #   * /velodyne/scan    - LaserScan single-ring fallback; useful for 2D
+    #                         localization and quick sanity checks.
+    # Note: this class only adds LiDAR topics. A full LIO-ready bag also
+    # needs IMU + TF, which are kept in record_mavros_imu and record_tf
+    # (both default-on).
+    'velodyne': [
+        '/velodyne_packets',
+        '/velodyne_points',
+        '/velodyne/scan',
     ],
     'adsb': [
         '/adsb/rtl_adsb_decoder_node/aircraft_list',

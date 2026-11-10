@@ -8,8 +8,9 @@ Default startup order:
      simultaneously with radio_vio if both share the same dongle
   4. Laser ranger (USB serial)
   5. Grasshopper stereo cameras
-  6. Spectrometer publisher
-  7. rqt GUI loaded with the earth_rover perspective
+  6. Velodyne LiDAR full chain (driver -> pointcloud -> laserscan)
+  7. Spectrometer publisher
+  8. rqt GUI loaded with the earth_rover perspective
 
 Each stage is delayed enough to let the previous process initialize. The delays
 are launch arguments so field tuning does not require editing this file.
@@ -27,6 +28,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, LogInfo, OpaqueFunction, TimerAction
 from launch.launch_description_sources import AnyLaunchDescriptionSource, PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 
 def _resolve_perspective_path(value: str) -> str:
@@ -67,6 +69,116 @@ def _bool_arg(context, name: str) -> bool:
 
 def _float_arg(context, name: str) -> float:
     return float(LaunchConfiguration(name).perform(context))
+
+
+def _str_arg(context, name: str) -> str:
+    return LaunchConfiguration(name).perform(context).strip()
+
+
+# Velodyne calibration files don't always follow a strict <model>db.yaml
+# pattern, so we keep an explicit map. Update if support for new sensors
+# is needed.
+_VELODYNE_CALIB_FILE = {
+    'VLP16': 'VLP16db.yaml',
+    'VLP32C': 'VeloView-VLP-32C.yaml',
+    'VLS128': 'VLS128.yaml',
+}
+
+
+def _build_velodyne_actions(context):
+    """Build the Velodyne driver -> pointcloud -> laserscan launch sequence.
+
+    Composes from the stock ROS 2 ``velodyne_*`` packages (no rover-specific
+    fork required). Layered parameter sources: stock model YAML first, then
+    a launch-arg override dict on top, so the device IP / port / frame /
+    range gates can be tuned from the command line without editing yaml on
+    disk.
+    """
+    model = _str_arg(context, 'velodyne_model').upper() or 'VLP16'
+    if model not in _VELODYNE_CALIB_FILE:
+        return [LogInfo(
+            msg=f'[earth_rover_system] velodyne_model={model!r} not supported '
+                f'(known: {sorted(_VELODYNE_CALIB_FILE)}). Skipping Velodyne stage.'
+        )]
+
+    try:
+        driver_share = get_package_share_directory('velodyne_driver')
+        cloud_share = get_package_share_directory('velodyne_pointcloud')
+    except Exception as exc:
+        return [LogInfo(
+            msg=f'[earth_rover_system] Velodyne packages not installed: {exc}. '
+                f'Install ros-${{ROS_DISTRO}}-velodyne to enable LiDAR.'
+        )]
+
+    driver_yaml = os.path.join(
+        driver_share, 'config', f'{model}-velodyne_driver_node-params.yaml')
+    cloud_yaml = os.path.join(
+        cloud_share, 'config', f'{model}-velodyne_transform_node-params.yaml')
+    calibration = os.path.join(
+        cloud_share, 'params', _VELODYNE_CALIB_FILE[model])
+
+    missing = [p for p in (driver_yaml, cloud_yaml, calibration) if not os.path.isfile(p)]
+    if missing:
+        return [LogInfo(
+            msg=f'[earth_rover_system] Velodyne config files missing: {missing}. '
+                f'Skipping Velodyne stage.'
+        )]
+
+    frame_id = _str_arg(context, 'velodyne_frame_id') or 'velodyne'
+    try:
+        port_int = int(float(_str_arg(context, 'velodyne_port') or '2368'))
+    except ValueError:
+        port_int = 2368
+
+    driver_overrides = {
+        'device_ip': _str_arg(context, 'velodyne_device_ip') or '192.168.1.201',
+        'port': port_int,
+        'frame_id': frame_id,
+        'model': model,
+    }
+    cloud_overrides = {
+        'calibration': calibration,
+        'model': model,
+        'min_range': _float_arg(context, 'velodyne_min_range'),
+        'max_range': _float_arg(context, 'velodyne_max_range'),
+    }
+    target_frame = _str_arg(context, 'velodyne_target_frame')
+    fixed_frame = _str_arg(context, 'velodyne_fixed_frame')
+    if target_frame:
+        cloud_overrides['target_frame'] = target_frame
+    if fixed_frame:
+        cloud_overrides['fixed_frame'] = fixed_frame
+
+    nodes = [
+        Node(
+            package='velodyne_driver',
+            executable='velodyne_driver_node',
+            name='velodyne_driver_node',
+            output='screen',
+            parameters=[driver_yaml, driver_overrides],
+        ),
+        Node(
+            package='velodyne_pointcloud',
+            executable='velodyne_transform_node',
+            name='velodyne_transform_node',
+            output='screen',
+            parameters=[cloud_yaml, cloud_overrides],
+        ),
+    ]
+    if _bool_arg(context, 'enable_velodyne_laserscan'):
+        # Default topic name from velodyne_laserscan_node is /scan, which
+        # collides with other 2D lidars / RPLIDAR setups. Remap to a
+        # namespaced topic so the rover graph stays unambiguous; the
+        # record_bag launch records this same name.
+        nodes.append(Node(
+            package='velodyne_laserscan',
+            executable='velodyne_laserscan_node',
+            name='velodyne_laserscan_node',
+            output='screen',
+            parameters=[{'ring': -1, 'resolution': 0.007}],
+            remappings=[('scan', 'velodyne/scan')],
+        ))
+    return nodes
 
 
 def _launch_file(package: str, *parts: str) -> str:
@@ -218,12 +330,24 @@ def launch_setup(context, *args, **kwargs):
             ],
         ))
 
-    # Stage 6: spectrometer.
+    # Stage 6: Velodyne LiDAR. Brings up the full publish chain so downstream
+    # consumers (LIO, RViz, panorama node, record_bag) immediately see
+    # /velodyne_packets, /velodyne_points, and (optionally) /velodyne/scan.
+    if _bool_arg(context, 'enable_velodyne'):
+        actions.append(TimerAction(
+            period=_float_arg(context, 'velodyne_delay_sec'),
+            actions=[
+                LogInfo(msg='[earth_rover_system] Stage 6: starting Velodyne LiDAR'),
+                *_build_velodyne_actions(context),
+            ],
+        ))
+
+    # Stage 7: spectrometer.
     if _bool_arg(context, 'enable_spectrometer'):
         actions.append(TimerAction(
             period=_float_arg(context, 'spectrometer_delay_sec'),
             actions=[
-                LogInfo(msg='[earth_rover_system] Stage 6: starting spectrometer'),
+                LogInfo(msg='[earth_rover_system] Stage 7: starting spectrometer'),
                 *_optional_stage(context, 'spectrometery_ros2', 'spectrometer_data_publisher.launch.py', {
                     'plot_image': LaunchConfiguration('spectrometer_plot_image'),
                     'integration_time_micros': LaunchConfiguration('spectrometer_integration_time_micros'),
@@ -232,22 +356,22 @@ def launch_setup(context, *args, **kwargs):
             ],
         ))
 
-    # Stage 7: rqt GUI on the host display, loaded with the earth_rover perspective.
+    # Stage 8: rqt GUI on the host display, loaded with the earth_rover perspective.
     if _bool_arg(context, 'rqt_gui'):
         perspective_path = _resolve_perspective_path(
             LaunchConfiguration('rqt_perspective').perform(context))
         if not os.environ.get('DISPLAY'):
             actions.append(TimerAction(
                 period=_float_arg(context, 'rqt_delay_sec'),
-                actions=[LogInfo(msg='[earth_rover_system] Stage 7: skipping rqt -- DISPLAY is not set.')],
+                actions=[LogInfo(msg='[earth_rover_system] Stage 8: skipping rqt -- DISPLAY is not set.')],
             ))
         else:
             cmd = ['rqt']
             if perspective_path:
                 cmd += ['--perspective-file', perspective_path]
-                msg = f'[earth_rover_system] Stage 7: starting rqt with perspective {perspective_path}'
+                msg = f'[earth_rover_system] Stage 8: starting rqt with perspective {perspective_path}'
             else:
-                msg = '[earth_rover_system] Stage 7: starting rqt (perspective not found, using default)'
+                msg = '[earth_rover_system] Stage 8: starting rqt (perspective not found, using default)'
             actions.append(TimerAction(
                 period=_float_arg(context, 'rqt_delay_sec'),
                 actions=[
@@ -331,6 +455,29 @@ def generate_launch_description():
         DeclareLaunchArgument('grasshopper_right_frame_rate', default_value='',
                               description='Per-side override for the right camera; empty -> use grasshopper_frame_rate.'),
         DeclareLaunchArgument('enable_realsense', default_value='false'),
+
+        DeclareLaunchArgument('enable_velodyne', default_value='true',
+                              description='Bring up the full Velodyne chain: driver -> velodyne_transform_node -> velodyne_laserscan_node.'),
+        DeclareLaunchArgument('velodyne_delay_sec', default_value='18.0',
+                              description='Seconds after launch start before the Velodyne stage begins.'),
+        DeclareLaunchArgument('velodyne_model', default_value='VLP16',
+                              description='Velodyne sensor model (VLP16 / VLP32C / VLS128). Must match calibration on disk.'),
+        DeclareLaunchArgument('velodyne_device_ip', default_value='192.168.1.201',
+                              description='Sensor IP address that the host network is configured to talk to.'),
+        DeclareLaunchArgument('velodyne_port', default_value='2368',
+                              description='UDP data port the sensor streams packets on (factory default 2368).'),
+        DeclareLaunchArgument('velodyne_frame_id', default_value='velodyne',
+                              description='Frame ID stamped on /velodyne_packets and /velodyne_points.'),
+        DeclareLaunchArgument('velodyne_min_range', default_value='0.9',
+                              description='Minimum valid range (m) for the pointcloud transform node.'),
+        DeclareLaunchArgument('velodyne_max_range', default_value='130.0',
+                              description='Maximum valid range (m) for the pointcloud transform node.'),
+        DeclareLaunchArgument('velodyne_target_frame', default_value='',
+                              description="Optional target_frame for velodyne_transform_node ('' = none)."),
+        DeclareLaunchArgument('velodyne_fixed_frame', default_value='',
+                              description="Optional fixed_frame for velodyne_transform_node ('' = none)."),
+        DeclareLaunchArgument('enable_velodyne_laserscan', default_value='true',
+                              description='Run velodyne_laserscan_node and remap /scan -> /velodyne/scan to avoid collisions.'),
 
         DeclareLaunchArgument('enable_spectrometer', default_value='true'),
         DeclareLaunchArgument('spectrometer_delay_sec', default_value='24.0'),
