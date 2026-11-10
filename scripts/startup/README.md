@@ -8,6 +8,16 @@ targets at boot and keeps every process in them running:
 | `er-deepgis.target` | `er-deepgis-mavros` (the only MAVROS), `er-deepgis-telemetry`, `er-deepgis-pose`, `er-deepgis-keyframe` | hand-written files in this directory |
 | `er-sensors.target` | `er-grasshopper`, `er-velodyne`, `er-laser`, `er-spectrometer`, `er-radio` | generated from `mission.yaml` |
 
+`er-deepgis-keyframe` posts a left-camera keyframe to DeepGIS when the rover has
+driven 10 m, turned 30 degrees or 30 s have passed. With each frame it posts a
+spectral product: the spectrometer reading integrated across that frame, reduced
+by `scripts/spectral_product.py` to a 1 nm spectrum, the clipped spans, band
+ratios, the laser range and the size of the patch the spectrometer averaged.
+DeepGIS draws it beside the camera frame and gives it to the AI pilot with the
+image. The spectrometer's cone and where it points in the image are the
+`spectrometer_fov_deg`, `boresight_u` and `boresight_v` parameters of
+`scripts/deepgis_keyframe_publisher.py`; `spectrometer_topic:=''` sends frames only.
+
 Each sensor unit runs one stage of `launch/earth_rover_system.launch.py` (every
 other stage off, no delay), so the launch defaults stay the single place to tune
 a sensor. Before starting, a unit waits for its hardware with `wait_for_hw.sh`

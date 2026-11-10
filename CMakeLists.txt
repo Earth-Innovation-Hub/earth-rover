@@ -62,6 +62,11 @@ install(PROGRAMS
   scripts/deepgis_keyframe_publisher.py
   DESTINATION lib/${PROJECT_NAME}
 )
+# Imported by deepgis_keyframe_publisher.py, so it sits beside it
+install(FILES
+  scripts/spectral_product.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 # SDR / ADS-B / landmark VIO moved to package radio_vio (packages/radio_vio).
 
