@@ -6,11 +6,11 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>Earth Rover - Vehicle Control Station</title>
     
-    <!-- External Libraries -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <script src="https://d3js.org/d3.v6.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Libraries (vendored so the console works without internet; see static/.../vendor/README.md) -->
+    <link rel="stylesheet" href="/static/vehicle-control-station/vendor/leaflet-1.7.1/leaflet.css" />
+    <script src="/static/vehicle-control-station/vendor/leaflet-1.7.1/leaflet.js"></script>
+    <script src="/static/vehicle-control-station/vendor/d3.v6.min.js"></script>
+    <script src="/static/vehicle-control-station/vendor/three-r128.min.js"></script>
     <script type="text/javascript" src="/static/vehicle-control-station/roslib.min.js"></script>
     
     <!-- Custom Styles -->

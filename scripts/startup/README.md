@@ -15,9 +15,16 @@ a sensor. Before starting, a unit waits for its hardware with `wait_for_hw.sh`
 on the rig leaves its unit `activating`; plugging it in starts it. Units restart
 forever (`Restart=always`, no start limit).
 
-Everything else is on demand: `er-record` (rosbag2), `er-rqt`, `er-kiosk`,
-`er-realsense`, `er-metavision`, and `er-console.target` (rosbridge, web video,
-the VCS Django app; not enabled until the VCS runs on Jazzy).
+`er-console.target` (also at boot) runs the web console: `er-rosbridge` (:9090),
+`er-web-video` (:8080) and `er-vcs` (the Django dashboard under gunicorn, :8000).
+They bind to `VCS_BIND_ADDRESS` from `secrets.env` (default 127.0.0.1; 0.0.0.0 on
+the rover, where ufw admits those ports from the cable interface only, not wifi).
+One-time setup: `vehicle_control_station/setup_venv.sh` (no sudo) and, as root,
+`apt install ros-jazzy-rosbridge-server ros-jazzy-web-video-server` plus the ufw
+rules; until then those units wait for their packages.
+
+Everything else is on demand: `er-record` (rosbag2, also the VCS Record button;
+refuses with under 20 GB free), `er-rqt`, `er-kiosk`, `er-realsense`, `er-metavision`.
 
 ## Install or refresh units
 

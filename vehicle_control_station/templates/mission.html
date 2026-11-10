@@ -170,12 +170,11 @@ const STATE_LABEL = {
 };
 
 const TIER_DESC = {
-  0: "Hardware presence checks - oneshot pre-conditions for the rest of the stack.",
-  1: "Sensor and I/O drivers - root-cause publishers for every topic.",
-  2: "State estimators and plotters - consume Tier-1 topics, produce derived state.",
-  3: "Web bridge - rosbridge_websocket and web_video_server.",
-  4: "Application - the Django Vehicle Control Station.",
-  5: "User interface - Firefox kiosk pointed at the VCS.",
+  1: "MAVROS and the DeepGIS link (er-deepgis.target, at boot).",
+  2: "One unit per sensor (er-sensors.target, at boot); \"starting\" = waiting for the hardware.",
+  3: "rosbridge_websocket and web_video_server (er-console.target, at boot).",
+  4: "The Django Vehicle Control Station (er-console.target).",
+  5: "Started by hand or from the dashboard (Record).",
 };
 
 function escapeHTML(s) {

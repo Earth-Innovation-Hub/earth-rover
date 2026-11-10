@@ -47,7 +47,7 @@ A real-time web-based monitoring and control interface for the Earth Rover platf
 
 #### Recording Controls
 - **One-Click Recording**: Start/stop recording all ROS topics from the web interface
-- **Automatic ROS Version Detection**: Compatible with both ROS1 and ROS2
+- **systemd-backed**: drives `er-record.service` (record_bag.launch.py)
 - **Timestamped Output**: Automatically organized rosbags with timestamps
 - **Status Indicators**: Visual feedback for recording state
 - **Process Management**: Graceful start/stop with proper cleanup
@@ -69,7 +69,7 @@ A real-time web-based monitoring and control interface for the Earth Rover platf
 ## Architecture
 
 ### Technology Stack
-- **Backend**: Django 3.x (Python)
+- **Backend**: Django 4.2 LTS (Python 3.12), WhiteNoise
 - **Frontend**: 
   - HTML5/CSS3/JavaScript
   - D3.js for data visualization
@@ -81,221 +81,89 @@ A real-time web-based monitoring and control interface for the Earth Rover platf
 
 ### API Endpoints
 
-#### `/api/disk-space/` (GET)
-Returns current disk space information for rosbag storage:
-```json
-{
-  "total_gb": 291.0,
-  "used_gb": 267.0,
-  "free_gb": 9.1,
-  "used_percent": 97.0,
-  "status": "ok"
-}
-```
+| Endpoint | Method | What it does |
+|---|---|---|
+| `/` | GET | Dashboard (cameras, map, LiDAR, spectrometer, ADS-B, recording) |
+| `/mission/` | GET | Live chart of the rover's systemd units from `scripts/startup/mission.yaml` |
+| `/api/mission/` | GET | Manifest + `systemctl --user show` state for every unit (one call) |
+| `/api/system-info/` | GET | Free space on the bag disk and CPU percent |
+| `/api/recording/status/` | GET | Whether `er-record.service` is running, newest bag directory |
+| `/api/recording/start/` | POST | `systemctl --user start er-record.service` (record_bag.launch.py, mcap) |
+| `/api/recording/stop/` | POST | Stops it; SIGINT closes the bag cleanly |
+| `/api/ros-nodes/` | GET | `ros2 node list` |
 
-#### `/api/recording/start/` (POST)
-Starts recording all ROS topics:
-```json
-{
-  "status": "ok",
-  "message": "Started recording all topics (ROS2)",
-  "recording": true,
-  "output_file": "/home/user/rosbags/rosbag2_2026_01_25-18_30_45",
-  "pid": 12345
-}
-```
+## Running on the rover
 
-#### `/api/recording/stop/` (POST)
-Stops the current recording:
-```json
-{
-  "status": "ok",
-  "message": "Recording stopped successfully",
-  "recording": false,
-  "output_file": "/home/user/rosbags/rosbag2_2026_01_25-18_30_45"
-}
-```
+The console is part of the always-on stack: `er-console.target` runs
+`er-rosbridge` (:9090), `er-web-video` (:8080) and `er-vcs` (:8000), generated
+from `scripts/startup/mission.yaml`. They listen on `${VCS_BIND_ADDRESS}`
+(set in `~/.config/earth-rover/secrets.env`); the rover's ufw rules admit those
+ports from loopback and the cable network only, not from wifi.
 
-#### `/api/recording/status/` (GET)
-Returns current recording status:
-```json
-{
-  "status": "ok",
-  "recording": true,
-  "output_file": "/home/user/rosbags/rosbag2_2026_01_25-18_30_45",
-  "pid": 12345
-}
-```
+One-time setup:
 
-## Prerequisites
-
-### System Requirements
-- Python 3.8+
-- ROS1 (Noetic) or ROS2 (Foxy/Humble/Rolling)
-- rosbridge_suite
-- web_video_server or similar MJPEG streamer
-
-### ROS Topics Expected
-The application subscribes to the following topics:
-- `/stereo/left/image_raw` - Left stereo camera
-- `/stereo/right/image_raw` - Right stereo camera
-- `/camera/fisheye1/image_raw` - Fisheye camera
-- `/mavros/global_position/raw/fix` - GPS data
-- `/scan` - 2D laser scan
-- `/velodyne_points` - Velodyne point cloud
-- `/camera/pose/sample` - Visual odometry
-- `/spectrometer` - Spectrometer data
-- `/serial_data` - Laser ranger data
-
-## Installation
-
-### 1. Install Dependencies
-
-Using Poetry (recommended):
 ```bash
-cd vehicle_control_station
-poetry install
+vehicle_control_station/setup_venv.sh      # Django + WhiteNoise in ~/.local/share/earth-rover/vcs-venv
+# rosbridge_server and web_video_server come from apt (ros-jazzy-*), see scripts/startup/README.md
 ```
 
-Or using pip:
+`SECRET_KEY` must be in `secrets.env`. Optional environment:
+
+- `VCS_DEBUG=1`: Django debug pages and static autorefresh.
+- `VCS_ALLOWED_HOSTS`: comma-separated Host names (default `*`).
+- `ROS_BRIDGE_URL`, `VIDEO_SERVER_URL`: override the URLs the page uses. By default they are the host that served the page on :9090 / :8080.
+- `RECORD_BAG_DIR`: where the disk gauge looks (default `~/earth-rover-bags`).
+
+Day to day:
+
 ```bash
-pip install Django>=3.0
+systemctl --user restart er-vcs           # after editing Python or templates
+journalctl --user -u er-vcs -f
 ```
 
-### 2. Configure Django
+Static files (`vehicle_control_station/static/`) are served by WhiteNoise
+straight from the source tree; there is no `collectstatic` step and no database.
+Leaflet, d3 and three.js are vendored under `static/vehicle-control-station/vendor/`
+so the page loads without internet (the OpenStreetMap tiles still need it).
 
-Set the Django secret key:
+For a quick local run off the rover:
+
 ```bash
-export SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
-```
-
-Or create a `.env` file:
-```bash
-SECRET_KEY=your-secret-key-here
-```
-
-### 3. Run Migrations
-```bash
-python manage.py migrate
-```
-
-### 4. Create Static Files
-```bash
-python manage.py collectstatic --noinput
-```
-
-## Usage
-
-### Starting the Server
-
-#### Development Mode
-```bash
-python manage.py runserver 0.0.0.0:8000
-```
-
-#### Production Mode
-```bash
-# Using gunicorn
-gunicorn vehicle_control_station.wsgi:application --bind 0.0.0.0:8000
-
-# Or run in background
-nohup python manage.py runserver 0.0.0.0:8000 > django_server.log 2>&1 &
-```
-
-### Starting Required ROS Services
-
-1. **Start rosbridge** (for WebSocket communication):
-```bash
-# ROS2
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml
-
-# ROS1
-roslaunch rosbridge_server rosbridge_websocket.launch
-```
-
-2. **Start web video server** (for camera feeds):
-```bash
-# ROS2
-ros2 run web_video_server web_video_server
-
-# ROS1
-rosrun web_video_server web_video_server
-```
-
-### Accessing the Interface
-
-Navigate to: `http://localhost:8000` or `http://<your-ip>:8000`
-
-### Recording ROS Topics
-
-1. Open the web interface
-2. Check the "Rosbag Storage Capacity" widget to ensure sufficient disk space
-3. Click "Start Recording" to begin recording all topics
-4. The status indicator will show "Recording" with a blinking red dot
-5. Click "Stop Recording" when finished
-6. Rosbags are saved to `~/rosbags/` with timestamp format: `rosbag2_YYYY_MM_DD-HH_MM_SS`
-
-## Configuration
-
-### WebSocket Connection
-Edit the ROS bridge URL in `templates/home.html`:
-```javascript
-var ros = new ROSLIB.Ros({ url: 'ws://192.168.0.35:9090' });
-```
-
-### Camera Stream URLs
-Modify camera stream sources in `templates/home.html`:
-```html
-<img src="http://192.168.0.35:8080/stream?topic=/stereo/left/image_raw">
-```
-
-### Recording Output Directory
-Default: `~/rosbags/`
-
-To change, modify the `start_recording` function in `vehicle_control_station/views.py`:
-```python
-rosbag_dir = os.path.expanduser('~/your-custom-path')
+SECRET_KEY=dev VCS_DEBUG=1 ~/.local/share/earth-rover/vcs-venv/bin/python manage.py runserver 127.0.0.1:8000
 ```
 
 ## Project Structure
 
 ```
 vehicle_control_station/
-├── manage.py                      # Django management script
-├── db.sqlite3                     # SQLite database
-├── README.md                      # This file
-├── RECORDING_FEATURE.md           # Detailed recording feature docs
-├── pyproject.toml                 # Poetry dependencies
+├── manage.py
+├── requirements.txt               # Django 4.2 LTS, WhiteNoise
+├── setup_venv.sh                  # builds the venv the er-vcs unit uses
 ├── templates/
-│   └── home.html                  # Main dashboard interface
-├── staticfiles/                   # Collected static files
+│   ├── home.html                  # dashboard
+│   └── mission.html               # unit tier chart
 └── vehicle_control_station/
-    ├── settings.py                # Django settings
-    ├── urls.py                    # URL routing
-    ├── views.py                   # API views and logic
-    ├── models.py                  # Database models
-    └── static/
-        └── vehicle-control-station/
-            └── roslib.min.js      # ROS JavaScript library
+    ├── settings.py                # env-driven, DEBUG off by default
+    ├── urls.py
+    ├── views.py                   # dashboard, system info, recording, ROS nodes
+    ├── mission_views.py           # mission.yaml + systemd state
+    └── static/vehicle-control-station/
+        ├── vcs-app.js, vcs-styles.css, roslib.min.js
+        └── vendor/                # leaflet, d3, three.js
 ```
 
 ## Troubleshooting
 
 ### WebSocket Connection Issues
-- Ensure rosbridge is running: `rosnode list | grep rosbridge`
-- Check firewall rules allow connections on port 9090
-- Verify the WebSocket URL matches your ROS master IP
+- `systemctl --user status er-rosbridge`; `journalctl --user -u er-rosbridge`
+- From wifi the console ports are refused by design (ufw); use the cable network or the rover's own display
 
 ### Camera Feeds Not Showing
-- Confirm web_video_server is running
-- Verify camera topics are publishing: `ros2 topic list | grep image` (ROS2) or `rostopic list | grep image` (ROS1)
-- Check the camera stream URLs match your setup
+- `systemctl --user status er-web-video er-grasshopper`
+- `ros2 topic hz /stereo/left/image_raw`
 
 ### Recording Fails to Start
-- Verify ROS environment is sourced
-- Check disk space availability
-- Ensure `~/rosbags/` directory is writable
-- Check ROS version compatibility (ROS1 vs ROS2)
+- `journalctl --user -u er-record`: the unit refuses to start with less than 20 GB free on the bag disk
 
 ### Point Cloud Not Rendering
 - Verify Velodyne frame_id is set to "velodyne" in the driver launch file
@@ -305,8 +173,8 @@ vehicle_control_station/
 ## Security Considerations
 
 - **CSRF Protection**: Enabled for all POST requests
-- **Process Isolation**: Recording processes use separate process groups
-- **Input Validation**: API endpoints validate request data
+- **Process Isolation**: Recording runs as its own systemd unit
+- **Network**: no login; access is limited to loopback and the cable network by ufw. rosbridge exposes the whole ROS graph (including MAVROS commands) to anyone who can reach :9090
 - **Network Security**: Configure firewall rules appropriately for production
 
 ⚠️ **Note**: This is intended for internal network use. Do not expose directly to the internet without proper authentication and encryption.

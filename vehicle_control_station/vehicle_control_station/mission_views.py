@@ -71,25 +71,27 @@ _PROPS = (
 )
 
 
-def _query_unit(unit: str) -> dict:
-    """Return a {prop: value} dict for one er-<id>.service."""
+_UNKNOWN = {"ActiveState": "unknown", "SubState": "unknown"}
+
+
+def _query_units(units: list[str]) -> dict[str, dict]:
+    """Return {unit: {prop: value}} for every unit, from one systemctl call."""
     try:
         out = subprocess.run(
             ["systemctl", "--user", "show",
-             "--property=" + ",".join(_PROPS), unit],
-            capture_output=True, text=True, timeout=3,
+             "--property=" + ",".join(_PROPS), *units],
+            capture_output=True, text=True, timeout=5,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        return {"ActiveState": "unknown", "SubState": "unknown"}
+        return {}
 
-    data = {}
-    for line in out.stdout.splitlines():
-        if "=" in line:
-            k, v = line.split("=", 1)
-            data[k] = v
-    if not data:
-        return {"ActiveState": "unknown", "SubState": "unknown"}
-    return data
+    # One block of KEY=value lines per unit, blocks separated by a blank line.
+    result = {}
+    for block in out.stdout.split("\n\n"):
+        data = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        if data.get("Id"):
+            result[data["Id"]] = data
+    return result
 
 
 # ---------- public views ------------------------------------------------------
@@ -110,10 +112,13 @@ def mission_status(request):
     services = manifest.get("services", []) or []
     mission = manifest.get("mission", {})
 
+    target_unit = mission.get("target", "er-sensors.target")
+    units = [f"er-{svc['id']}.service" for svc in services]
+    states = _query_units(units + [target_unit])
+
     enriched = []
-    for svc in services:
-        unit = f"er-{svc['id']}.service"
-        state = _query_unit(unit)
+    for svc, unit in zip(services, units):
+        state = states.get(unit, _UNKNOWN)
         active = state.get("ActiveState", "unknown")
         sub = state.get("SubState", "unknown")
 
@@ -137,7 +142,7 @@ def mission_status(request):
             "requires": svc.get("requires", []) or [],
             "optional": bool(svc.get("optional", False)),
             "type": svc.get("type", "simple"),
-            "exec": svc.get("exec", ""),
+            "exec": svc.get("exec") or (f"earth_rover_system stage {svc['stage']}" if svc.get("stage") else ""),
             "health_topic": svc.get("health_topic"),
             "health_url": svc.get("health_url"),
             "unit": unit,
@@ -156,14 +161,14 @@ def mission_status(request):
 
     tier_labels = {int(k): v for k, v in (manifest.get("tiers") or {}).items()}
 
-    target_state = _query_unit(mission.get("target", "er-sensors.target"))
+    target_state = states.get(target_unit, _UNKNOWN)
 
     return JsonResponse({
         "status": "ok",
         "mission": {
             "name": mission.get("name", "Earth Rover Mission"),
             "description": mission.get("description", ""),
-            "target": mission.get("target", "er-sensors.target"),
+            "target": target_unit,
             "target_state": target_state.get("ActiveState", "unknown"),
         },
         "tiers": [

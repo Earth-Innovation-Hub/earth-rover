@@ -42,7 +42,7 @@ targets:
   console:
     unit: er-console.target
     description: Earth Rover web console (rosbridge, web video, VCS)
-    boot: false
+    boot: true
 
 tiers:
   1: Vehicle Link
@@ -127,10 +127,13 @@ services:
     health_topic: /adsb/rtl_adsb_decoder_node/aircraft_list
 
   # =========== Tier 3/4  --  web console (er-console.target) ==================
+  # VCS_BIND_ADDRESS (secrets.env) is 0.0.0.0 on the rover; ufw admits 8000,
+  # 8080 and 9090 from loopback and the cable network only.
   - id: rosbridge
     name: ROSBridge WebSocket :9090
     tier: 3
     target: console
+    wait_for: [path:/opt/ros/jazzy/share/rosbridge_server]
     exec: 'exec ros2 launch rosbridge_server rosbridge_websocket_launch.xml address:=${VCS_BIND_ADDRESS:-127.0.0.1}'
     description: WebSocket to ROS 2 bridge for the VCS browser client.
 
@@ -138,6 +141,7 @@ services:
     name: Web Video Server :8080
     tier: 3
     target: console
+    wait_for: [path:/opt/ros/jazzy/share/web_video_server]
     exec: 'exec ros2 run web_video_server web_video_server --ros-args -p address:=${VCS_BIND_ADDRESS:-127.0.0.1} -p port:=8080'
     description: HTTP MJPEG server for camera image topics.
 
@@ -145,11 +149,11 @@ services:
     name: Vehicle Control Station (Django)
     tier: 4
     target: console
-    after: [rosbridge, web-video]
-    exec: 'cd ${EARTH_ROVER_HOME}/vehicle_control_station && exec python3 manage.py runserver ${VCS_BIND_ADDRESS:-127.0.0.1}:${VCS_PORT}'
+    wait_for: [path:/home/jdas/.local/share/earth-rover/vcs-venv/bin/gunicorn]
+    exec: 'cd ${EARTH_ROVER_HOME}/vehicle_control_station && exec $HOME/.local/share/earth-rover/vcs-venv/bin/gunicorn --bind ${VCS_BIND_ADDRESS:-127.0.0.1}:${VCS_PORT} --workers 1 --threads 8 --access-logfile - vehicle_control_station.wsgi'
     env:
       VCS_PORT: "8000"
-    description: Django rover dashboard and mission chart.
+    description: Django rover dashboard and mission chart (gunicorn).
     health_url: http://localhost:8000/
 
   # =========== Tier 5  --  on demand ==========================================
@@ -157,8 +161,8 @@ services:
     name: Bag Recorder
     tier: 5
     target: none
-    exec: 'exec ros2 launch deepgis_vehicles record_bag.launch.py'
-    description: rosbag2 (mcap) recording to ~/earth-rover-bags.
+    exec: 'free=$(df --output=avail -BG $HOME/earth-rover-bags | tail -1 | tr -dc 0-9); [ "$free" -ge 20 ] || { echo "only ${free} GB free on the bag disk, need 20"; exit 1; }; exec ros2 launch deepgis_vehicles record_bag.launch.py'
+    description: rosbag2 (mcap) recording to ~/earth-rover-bags; refuses with under 20 GB free.
 
   - id: rqt
     name: rqt Perspective
