@@ -41,7 +41,7 @@ targets:
     boot: true
   console:
     unit: er-console.target
-    description: Earth Rover web console (rosbridge, web video, VCS)
+    description: Earth Rover web console (rosbridge, web video, VCS, VNC desktop)
     boot: true
 
 tiers:
@@ -161,6 +161,18 @@ services:
       VCS_PORT: "8000"
     description: Django rover dashboard and mission chart (gunicorn).
     health_url: http://localhost:8000/
+
+  - id: vnc
+    name: VNC Desktop (XFCE)
+    tier: 4
+    target: console
+    wait_for: [path:/usr/bin/startxfce4]
+    exec: 'exec bash ${EARTH_ROVER_HOME}/scripts/startup/vnc_server.sh'
+    env:
+      VNC_INTERFACE: enp1s0
+      VNC_DISPLAY: ":2"
+      VNC_GEOMETRY: 1920x1080
+    description: TigerVNC XFCE desktop on :2 (port 5902), listening on the ethernet address only.
 
   # =========== Tier 5  --  on demand ==========================================
   - id: record
