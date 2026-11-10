@@ -59,6 +59,7 @@ install(PROGRAMS
   scripts/test_gps_publisher.py
   scripts/deepgis_telemetry_publisher.py
   scripts/deepgis_pose_publisher.py
+  scripts/deepgis_keyframe_publisher.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

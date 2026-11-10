@@ -60,7 +60,7 @@ python3 "$GENERATOR" --mission "$MISSION_YAML" --output-dir "$USER_UNIT_DIR"
 
 # ---- Hand-written sidecar units (not generated; see their headers) ----------
 for sidecar in er-rsync-archive.service er-rsync-archive.timer \
-        er-deepgis.target er-deepgis-mavros.service er-deepgis-telemetry.service er-deepgis-pose.service; do
+        er-deepgis.target er-deepgis-mavros.service er-deepgis-telemetry.service er-deepgis-pose.service er-deepgis-keyframe.service; do
     src="${EARTH_ROVER_HOME}/scripts/startup/${sidecar}"
     if [ -f "$src" ]; then
         install -m 0644 "$src" "${USER_UNIT_DIR}/${sidecar}"

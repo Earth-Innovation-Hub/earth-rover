@@ -81,6 +81,12 @@ services:
     external: true
     description: Live rover position on the DeepGIS globe.
 
+  - id: deepgis-keyframe
+    name: DeepGIS Keyframes
+    tier: 1
+    external: true
+    description: Left-camera keyframes (every 10 m, 30 deg turn or 30 s) to DeepGIS.
+
   # =========== Tier 2  --  sensor drivers (er-sensors.target) =================
   - id: grasshopper
     name: Grasshopper3 Stereo

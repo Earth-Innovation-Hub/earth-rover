@@ -5,7 +5,7 @@ targets at boot and keeps every process in them running:
 
 | Target | Units | Source |
 |---|---|---|
-| `er-deepgis.target` | `er-deepgis-mavros` (the only MAVROS), `er-deepgis-telemetry`, `er-deepgis-pose` | hand-written files in this directory |
+| `er-deepgis.target` | `er-deepgis-mavros` (the only MAVROS), `er-deepgis-telemetry`, `er-deepgis-pose`, `er-deepgis-keyframe` | hand-written files in this directory |
 | `er-sensors.target` | `er-grasshopper`, `er-velodyne`, `er-laser`, `er-spectrometer`, `er-radio` | generated from `mission.yaml` |
 
 Each sensor unit runs one stage of `launch/earth_rover_system.launch.py` (every
