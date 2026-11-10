@@ -1,213 +1,190 @@
-# Earth Rover  --  Mission Launch Dependency Manifest
-# ====================================================
-# Single source of truth for the boot sequence of the rover stack.
+# Earth Rover  --  always-on service manifest
+# ===========================================
+# Single source of truth for what runs on the rover and how it is supervised.
 # Consumed by:
 #   * scripts/startup/install_user_units.sh  -> generates systemd --user units
-#                                                with proper After= / Wants= / PartOf=
 #   * vehicle_control_station mission view   -> renders the live tier chart
 #
-# Tier semantics:
-#   0 = hardware presence checks   (oneshot pre-conditions)
-#   1 = sensor / I/O drivers       (root cause of all topics)
-#   2 = state estimators / plots   (consume Tier-1 topics, produce derived state)
-#   3 = web bridge                 (rosbridge + web_video_server)
-#   4 = application                (Django Vehicle Control Station)
-#   5 = ui                         (Firefox kiosk)
+# Supervision model
+#   systemd --user (lingering) is the only supervisor: one process per unit,
+#   grouped into targets. Targets with `boot: true` are enabled at boot.
+#   Sensor units wait for their hardware (wait_for_hw.sh) instead of sleeping
+#   for a fixed delay, restart forever, and simply sit in "activating" when a
+#   sensor is not on the rig.
+#
+# Service fields
+#   target:  key under `targets:`, `graphical` (desktop session), or `none`
+#            (on demand: start it by hand or from the VCS)
+#   stage:   run one stage of launch/earth_rover_system.launch.py with every
+#            other stage off and no delay, so the field-tuned launch defaults
+#            stay in one place; `args:` adds launch arguments
+#   exec:    command to run instead of a stage (after ROS is sourced)
+#   wait_for: hardware specs for wait_for_hw.sh (usb:VID:PID, path:/dev/x, udp:PORT)
+#   external: hand-written unit in this directory; listed here only so the
+#            VCS shows it, never generated
+#
+# Site-specific values (bind addresses, overrides) go in
+# ~/.config/earth-rover/secrets.env (mode 600, not in git).
 
 mission:
-  name: Earth Rover Trike Stack
+  name: Earth Rover
   description: >
-    Full ground-station and rover boot sequence. Tier-0 hardware checks gate
-    Tier-1 sensor drivers; estimators (Tier-2) consume their topics; the web
-    bridge (Tier-3) publishes them to the VCS Django app (Tier-4); the kiosk
-    (Tier-5) opens the VCS in fullscreen Firefox.
-  target: er-mission.target
+    Always-on rover stack. The DeepGIS link (MAVROS, telemetry, pose) and every
+    sensor driver start at boot and restart on their own; recording, rqt and
+    the kiosk are started on demand.
+  target: er-sensors.target
 
-# ----- environment defaults inherited by every unit ---------------------------
+targets:
+  sensors:
+    unit: er-sensors.target
+    description: Earth Rover sensor drivers (always on)
+    boot: true
+  console:
+    unit: er-console.target
+    description: Earth Rover web console (rosbridge, web video, VCS)
+    boot: false
+
+tiers:
+  1: Vehicle Link
+  2: Sensor Drivers
+  3: Web Bridge
+  4: Application
+  5: On Demand
+
+# ----- environment defaults inherited by every generated unit -----------------
 defaults:
-  ros_distro: humble
+  ros_distro: jazzy
   ros2_ws: /home/jdas/ros2_ws
   earth_rover_home: /home/jdas/earth-rover
-  pixhawk_device: /dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTD16B5P-if00-port0
-  pixhawk_baud: "921600"
-  gcs_url: udp://@192.168.0.6:14550
+  ros_domain_id: "0"
 
 # ----- service catalog --------------------------------------------------------
 services:
 
-  # =========== Tier 0  --  hardware presence ===========
-  - id: hw-pixhawk
-    name: Pixhawk USB present
-    tier: 0
-    type: oneshot
-    exec: 'test -e ${PIXHAWK_DEVICE}'
-    description: Verify the FTDI cable to the Pixhawk is plugged in.
-
-  - id: hw-rtlsdr
-    name: RTL-SDR USB present
-    tier: 0
-    type: oneshot
-    exec: 'lsusb | grep -qiE "RTL2838|RTL2832|Realtek" || lsusb | grep -qi "DVB-T"'
-    description: Verify the RTL-SDR dongle for ADS-B reception is enumerated.
-    optional: true
-
-  - id: hw-cameras
-    name: Cameras enumerated
-    tier: 0
-    type: oneshot
-    exec: 'lsusb | grep -qiE "Point Grey|FLIR|Intel.*RealSense|Prophesee" || true'
-    description: Spinnaker / RealSense / Metavision cameras visible on USB.
-    optional: true
-
-  # =========== Tier 1  --  sensor / I/O drivers ===========
-  - id: serial-pub
-    name: Serial Data Publisher
-    tier: 1
-    exec: 'cd /home/jdas/src/scripts && exec python3 ros_publish_serial.py'
-    description: Publishes /serial_data from the rover's USB serial bridge.
-    optional: true
-
-  - id: mavros
+  # =========== Tier 1  --  vehicle link (hand-written, er-deepgis.target) =====
+  - id: deepgis-mavros
     name: MAVROS / Pixhawk
     tier: 1
-    after: [hw-pixhawk]
-    requires: [hw-pixhawk]
-    exec: 'exec ros2 launch mavros px4.launch fcu_url:="${PIXHAWK_DEVICE}:${PIXHAWK_BAUD}" gcs_url:="${GCS_URL}"'
-    description: PX4 ↔ ROS 2 bridge over MAVLink.
+    external: true
+    description: The only MAVROS on the rover (vehicle_interface.launch.py over the FTDI cable).
     health_topic: /mavros/state
 
+  - id: deepgis-telemetry
+    name: DeepGIS Telemetry
+    tier: 1
+    external: true
+    description: MAVROS odometry + GPS to the DeepGIS portal, spooled on weak links.
+
+  - id: deepgis-pose
+    name: DeepGIS Pose
+    tier: 1
+    external: true
+    description: Live rover position on the DeepGIS globe.
+
+  # =========== Tier 2  --  sensor drivers (er-sensors.target) =================
   - id: grasshopper
     name: Grasshopper3 Stereo
-    tier: 1
-    after: [hw-cameras]
-    exec: 'exec ${ROS2_WS}/launch_grasshopper.sh 3'
-    description: Stereo Grasshopper3 cameras (left + right).
-    optional: true
-
-  - id: realsense
-    name: RealSense Camera
-    tier: 1
-    after: [hw-cameras]
-    exec: 'exec ros2 launch realsense2_camera rs_launch.py'
-    description: Intel RealSense T265 / D435 fisheye + depth.
-    optional: true
-    health_topic: /camera/fisheye1/image_raw
-
-  - id: metavision
-    name: Metavision Event Camera
-    tier: 1
-    after: [hw-cameras]
-    exec: 'exec ros2 launch metavision_driver driver_node.launch.py'
-    description: Prophesee event-based camera driver.
-    optional: true
+    tier: 2
+    target: sensors
+    stage: grasshopper
+    wait_for: [usb:1e10:3300]
+    description: Left + right Grasshopper3 cameras (Spinnaker).
+    health_topic: /stereo/left/image_raw
 
   - id: velodyne
     name: Velodyne VLP-16
-    tier: 1
-    exec: 'exec ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py'
-    description: Velodyne LiDAR pointcloud publisher.
-    optional: true
+    tier: 2
+    target: sensors
+    stage: velodyne
+    wait_for: [udp:2368]
+    description: Velodyne driver, pointcloud and laserscan chain; waits for packets on 2368.
     health_topic: /velodyne_points
 
-  - id: rtl-adsb
-    name: RTL ADS-B Decoder
-    tier: 1
-    after: [hw-rtlsdr]
-    exec: 'exec ros2 launch radio_vio rtl_adsb.launch.py'
-    description: dump1090-based ADS-B decoder publishing raw aircraft messages.
-    optional: true
+  - id: laser
+    name: Laser Ranger
+    tier: 2
+    target: sensors
+    stage: laser
+    wait_for: [path:/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DO01SSV5-if00-port0]
+    description: USB-serial laser rangefinder; also republishes the raw serial_data.
+    health_topic: /laser_distance
 
   - id: spectrometer
     name: Ocean Optics Spectrometer
-    tier: 1
-    exec: 'exec ros2 run spectrometery_ros2 Spectrometer_Data_Publisher.py'
-    description: Spectrometer readings publisher.
-    optional: true
-    health_topic: /spectrometer
-
-  # =========== Tier 2  --  state estimators / plotters ===========
-  - id: adsb-state
-    name: ADS-B Aircraft State Vectors
     tier: 2
-    after: [rtl-adsb, mavros]
-    requires: [rtl-adsb]
-    exec: 'exec ros2 launch radio_vio adsb_aircraft_state_vectors.launch.py'
-    description: Decodes ADS-B into per-aircraft state vectors in the trike frame.
+    target: sensors
+    stage: spectrometer
+    wait_for: [usb:2457:101e]
+    description: Flame-S spectrum publisher and intensity plot image.
 
-  - id: adsb-plot-2d
-    name: ADS-B 2D Plot Image
+  - id: radio
+    name: Radio Stack (ADS-B)
     tier: 2
-    after: [adsb-state]
-    requires: [adsb-state]
-    exec: 'exec ros2 launch radio_vio adsb_state_vectors_plot_2d.launch.py'
-    description: Renders aircraft to a 2D image topic for the VCS.
+    target: sensors
+    stage: radio_vio
+    wait_for: [usb:0bda:2838]
+    description: RTL-SDR dump1090 ADS-B decoder, aircraft state vectors and plots.
+    health_topic: /adsb/rtl_adsb_decoder_node/aircraft_list
 
-  - id: adsb-glide
-    name: ADS-B Glide Profile
-    tier: 2
-    after: [adsb-state]
-    requires: [adsb-state]
-    exec: 'exec ros2 launch radio_vio adsb_state_vectors_plot_glide.launch.py'
-    description: Altitude-vs-path-angle glide-profile renderer.
-    optional: true
-
-  - id: landmark-vo-fisheye
-    name: Landmark VO (fisheye)
-    tier: 2
-    after: [realsense]
-    requires: [realsense]
-    exec: 'exec ros2 launch radio_vio landmark_vo_plot_fisheye.launch.py'
-    description: Visual-odometry plot from the RealSense fisheye stream.
-    optional: true
-
-  - id: spectrometer-plot
-    name: Spectrometer Intensity Plot
-    tier: 2
-    after: [spectrometer]
-    exec: 'exec ros2 run spectrometery_ros2 Intensity_Plot.py'
-    description: Live intensity plot rendered to an image topic.
-    optional: true
-
-  - id: deepgis-gps
-    name: DeepGIS Telemetry Publisher
-    tier: 2
-    after: [mavros]
-    exec: 'exec ros2 run deepgis_vehicles deepgis_telemetry_publisher.py'
-    description: Forwards MAVROS GPS to the DeepGIS telemetry channel.
-    optional: true
-
-  # =========== Tier 3  --  web bridge ===========
+  # =========== Tier 3/4  --  web console (er-console.target) ==================
   - id: rosbridge
     name: ROSBridge WebSocket :9090
     tier: 3
-    after: [mavros]
-    exec: 'exec ros2 launch rosbridge_server rosbridge_websocket_launch.xml'
-    description: WebSocket↔ROS2 bridge consumed by the VCS browser client.
+    target: console
+    exec: 'exec ros2 launch rosbridge_server rosbridge_websocket_launch.xml address:=${VCS_BIND_ADDRESS:-127.0.0.1}'
+    description: WebSocket to ROS 2 bridge for the VCS browser client.
 
   - id: web-video
     name: Web Video Server :8080
     tier: 3
-    exec: 'exec ros2 run web_video_server web_video_server --ros-args -p port:=8080'
-    description: HTTP MJPEG server exposing camera image topics.
+    target: console
+    exec: 'exec ros2 run web_video_server web_video_server --ros-args -p address:=${VCS_BIND_ADDRESS:-127.0.0.1} -p port:=8080'
+    description: HTTP MJPEG server for camera image topics.
 
-  # =========== Tier 4  --  application ===========
   - id: vcs
     name: Vehicle Control Station (Django)
     tier: 4
+    target: console
     after: [rosbridge, web-video]
-    requires: [rosbridge]
-    exec: 'cd ${EARTH_ROVER_HOME}/vehicle_control_station && exec python3 manage.py runserver 0.0.0.0:${VCS_PORT}'
+    exec: 'cd ${EARTH_ROVER_HOME}/vehicle_control_station && exec python3 manage.py runserver ${VCS_BIND_ADDRESS:-127.0.0.1}:${VCS_PORT}'
     env:
       VCS_PORT: "8000"
-    description: Django app rendering the rover dashboard.
+    description: Django rover dashboard and mission chart.
     health_url: http://localhost:8000/
 
-  # =========== Tier 5  --  user interface ===========
+  # =========== Tier 5  --  on demand ==========================================
+  - id: record
+    name: Bag Recorder
+    tier: 5
+    target: none
+    exec: 'exec ros2 launch deepgis_vehicles record_bag.launch.py'
+    description: rosbag2 (mcap) recording to ~/earth-rover-bags.
+
+  - id: rqt
+    name: rqt Perspective
+    tier: 5
+    target: graphical
+    stage: rqt
+    description: rqt on the rover display with the earth_rover perspective.
+
   - id: kiosk
     name: Firefox Kiosk
     tier: 5
+    target: graphical
     after: [vcs]
-    requires: [vcs]
     exec: 'exec ${EARTH_ROVER_HOME}/scripts/startup/firefox_kiosk.sh http://localhost:8000/mission/'
-    description: Fullscreen Firefox pointed at the VCS mission page.
-    needs_display: true
+    description: Fullscreen Firefox on the VCS mission page.
+
+  - id: realsense
+    name: RealSense Camera
+    tier: 5
+    target: none
+    exec: 'exec ros2 launch realsense2_camera rs_launch.py'
+    description: Intel RealSense (driver not installed for Jazzy yet).
+
+  - id: metavision
+    name: Metavision Event Camera
+    tier: 5
+    target: none
+    exec: 'exec ros2 launch metavision_driver driver_node.launch.py'
+    description: Prophesee event camera driver.

@@ -1,71 +1,57 @@
 # Earth Rover Startup
 
-Nothing auto-starts at boot. Launching the rover stack should be an explicit
-operator action.
+The rover stack is always on. A lingering `systemd --user` manager starts two
+targets at boot and keeps every process in them running:
 
-The legacy monolithic trike scripts have been removed. Use the `systemd --user`
-mission units for today's stack, or add a new well-sequenced launch script here
-when the desired startup order is finalized.
+| Target | Units | Source |
+|---|---|---|
+| `er-deepgis.target` | `er-deepgis-mavros` (the only MAVROS), `er-deepgis-telemetry`, `er-deepgis-pose` | hand-written files in this directory |
+| `er-sensors.target` | `er-grasshopper`, `er-velodyne`, `er-laser`, `er-spectrometer`, `er-radio` | generated from `mission.yaml` |
 
-## Current Startup Path
+Each sensor unit runs one stage of `launch/earth_rover_system.launch.py` (every
+other stage off, no delay), so the launch defaults stay the single place to tune
+a sensor. Before starting, a unit waits for its hardware with `wait_for_hw.sh`
+(USB id, serial device, or Velodyne packets on UDP 2368). A sensor that is not
+on the rig leaves its unit `activating`; plugging it in starts it. Units restart
+forever (`Restart=always`, no start limit).
 
-Sequenced ROS launch file:
+Everything else is on demand: `er-record` (rosbag2), `er-rqt`, `er-kiosk`,
+`er-realsense`, `er-metavision`, and `er-console.target` (rosbridge, web video,
+the VCS Django app; not enabled until the VCS runs on Jazzy).
 
-```bash
-ros2 launch deepgis_vehicles earth_rover_system.launch.py
-```
-
-This starts MAVROS, then `radio_vio`, then Grasshopper stereo cameras, then the
-spectrometer. Use `ros2 launch deepgis_vehicles earth_rover_system.launch.py
---show-args` to see stage toggles and delay arguments.
-
-Install or refresh user units:
-
-```bash
-cd /home/jdas/earth-rover/scripts/startup
-./install_user_units.sh
-```
-
-Start the UI layer only:
+## Install or refresh units
 
 ```bash
-make -C /home/jdas/earth-rover ui-up
-xdg-open http://localhost:8000/mission/
+~/earth-rover/scripts/startup/install_user_units.sh   # generate, prune stale, enable boot targets
+make -C ~/earth-rover mission-up                       # start now instead of rebooting
+make -C ~/earth-rover mission-status
 ```
 
-Start selected services:
+Edit `mission.yaml`, never the generated `er-*.service` files. Generated units
+that the manifest no longer lists are stopped and deleted on the next install.
+
+## Day to day
 
 ```bash
-systemctl --user start er-mavros.service
-systemctl --user start er-grasshopper.service
-systemctl --user start er-rtl-adsb.service er-adsb-state.service
+journalctl --user -u er-grasshopper -f              # one sensor's log
+systemctl --user restart er-velodyne                 # restart one sensor
+systemctl --user stop er-sensors.target              # all sensors off (DeepGIS link stays up)
+systemctl --user start er-record                     # record a bag; stop it the same way
 ```
 
-Start or stop the mission graph:
+`ros2 launch deepgis_vehicles earth_rover_system.launch.py` still works for bench
+runs: it skips MAVROS and any stage whose unit is up or waiting
+(`defer_to_units:=false` to force).
 
-```bash
-make -C /home/jdas/earth-rover mission-up
-make -C /home/jdas/earth-rover mission-status
-make -C /home/jdas/earth-rover mission-down
-```
+Site-specific values (e.g. `VCS_BIND_ADDRESS` for the console) go in
+`~/.config/earth-rover/secrets.env` (mode 600, not in git).
 
-## Files Kept
+## Files
 
-- `install_user_units.sh` / `install_user_units.py`: generate `er-*.service`
-  units and `er-mission.target`.
+- `mission.yaml`: the manifest (targets, services, tiers for the VCS chart).
+- `install_user_units.sh` / `install_user_units.py`: generator and installer.
+- `wait_for_hw.sh`: hardware wait used by the sensor units.
+- `er-deepgis*.service`, `er-deepgis.target`: the DeepGIS link.
 - `firefox_kiosk.sh` / `earth-rover-kiosk.desktop`: kiosk helper.
-- `vcs_down.sh` / `vcs_status.sh`: VCS helper scripts.
-- `rsync_archive.sh`, `er-rsync-archive.service`, `er-rsync-archive.timer`:
-  manual SSD-to-NAS archive support.
-- `README.md`: this file.
-
-## Removed Legacy Trike Scripts
-
-The old installer, monolithic startup router, full/minimal stack scripts,
-manual status/stop helpers, and legacy desktop/systemd autostart entries have
-been removed to avoid maintaining two startup paths.
-
-## Next Step
-
-Move more mission services into `earth_rover_system.launch.py` as needed, or keep
-them as individual `er-*` units when separate restart/log control is useful.
+- `vcs_up.sh` / `vcs_down.sh` / `vcs_status.sh`, `vcs.tmuxp.yaml`: legacy VCS helpers, superseded by `er-console.target`.
+- `rsync_archive.sh`, `er-rsync-archive.service`, `er-rsync-archive.timer`: SSD-to-NAS archive.

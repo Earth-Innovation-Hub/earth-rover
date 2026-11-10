@@ -1,57 +1,72 @@
 #!/usr/bin/env python3
 """Generate systemd --user units from mission.yaml.
 
-Each service in mission.yaml becomes one ``er-<id>.service`` file.  An
-aggregating ``er-mission.target`` is generated that ``Wants=`` every service
-so a single ``systemctl --user start er-mission.target`` brings the whole
-rover stack up in tier order.
+Each non-external service in mission.yaml becomes one ``er-<id>.service``;
+each entry under ``targets:`` becomes a target that ``Wants=`` its members.
 
-Edge encoding:
-    after:    -> After=
-    requires: -> Requires=  (hard dependency: failure of dep stops this unit)
+    target: <key>     -> member of that target, Restart=always, never gives up
+    target: graphical -> bound to graphical-session.target, started by hand
+    target: none      -> on demand, started by hand or from the VCS
+    stage: <name>     -> one stage of earth_rover_system.launch.py, no delay
+    wait_for: [...]   -> ExecStartPre=wait_for_hw.sh (blocks until present)
+    after/requires    -> After= / Requires= on the matching er-<dep>.service
 
-Mission topology is therefore expressed declaratively in mission.yaml; this
-script is a pure translator.
+Generated units carry a header line; units with that header that are no longer
+produced by the manifest are stopped and removed, so the unit directory never
+drifts from mission.yaml. Hand-written sidecars (no header) are left alone.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 
 
+HEADER = "# Auto-generated from mission.yaml -- DO NOT EDIT BY HAND."
+
+# stage -> (enable flag, delay argument) in launch/earth_rover_system.launch.py
+STAGES = {
+    "radio_vio": ("enable_radio_vio", "radio_delay_sec"),
+    "rtl_sdr": ("enable_rtl_sdr", "rtl_sdr_delay_sec"),
+    "laser": ("enable_laser", "laser_delay_sec"),
+    "grasshopper": ("enable_grasshopper", "camera_delay_sec"),
+    "realsense": ("enable_realsense", "camera_delay_sec"),
+    "velodyne": ("enable_velodyne", "velodyne_delay_sec"),
+    "spectrometer": ("enable_spectrometer", "spectrometer_delay_sec"),
+    "rqt": ("rqt_gui", "rqt_delay_sec"),
+}
+
 SERVICE_TEMPLATE = """\
-# Auto-generated from mission.yaml -- DO NOT EDIT BY HAND.
+{header}
 # Edit scripts/startup/mission.yaml then re-run install_user_units.sh.
 [Unit]
 Description={description}
-PartOf={part_of}
-{after_line}{wants_line}{requires_line}{condition_line}
-
+{unit_lines}
 [Service]
-Type={unit_type}
+Type=simple
 EnvironmentFile=-%h/.config/earth-rover/secrets.env
-{env_lines}\
-ExecStart=/bin/bash -lc {exec_quoted}
-{restart_line}\
+{env_lines}{pre_lines}ExecStart=/bin/bash -lc {exec_quoted}
+{restart_lines}KillSignal=SIGINT
+TimeoutStopSec=20
 StandardOutput=journal
 StandardError=journal
-
-[Install]
-WantedBy={wanted_by}
-"""
-
+{install}"""
 
 TARGET_TEMPLATE = """\
-# Auto-generated from mission.yaml -- DO NOT EDIT BY HAND.
+{header}
 [Unit]
 Description={description}
 Wants={wants}
-After={after}
+# Without this a target is ordered After= everything it Wants=, so one sensor
+# waiting for absent hardware would hold this target (and default.target) forever.
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target
 
 [Install]
 WantedBy=default.target
@@ -64,175 +79,167 @@ def shell_quote(s: str) -> str:
 
 
 def build_env_block(defaults: dict, svc: dict) -> str:
-    """Return Environment= lines covering the global defaults + per-service env.
-
-    Defaults are exposed as upper-case env vars (e.g. ``ros_distro`` ->
-    ``ROS_DISTRO``); per-service ``env`` values are added verbatim.
-    """
-    lines = []
-    for key, val in defaults.items():
-        env_key = key.upper()
-        lines.append(f'Environment="{env_key}={val}"')
-    for key, val in (svc.get("env") or {}).items():
-        lines.append(f'Environment="{key}={val}"')
+    """Defaults become upper-case env vars (ros_distro -> ROS_DISTRO); per-service env is verbatim."""
+    lines = [f'Environment="{k.upper()}={v}"' for k, v in defaults.items()]
+    lines += [f'Environment="{k}={v}"' for k, v in (svc.get("env") or {}).items()]
     return "\n".join(lines) + ("\n" if lines else "")
 
 
-def emit_service(svc: dict, defaults: dict) -> tuple[str, str]:
-    """Return (filename, contents) for one service entry."""
+def stage_command(svc: dict) -> str:
+    stage = svc["stage"]
+    if stage not in STAGES:
+        raise SystemExit(f"[install_user_units] {svc['id']}: unknown stage {stage!r} (known: {sorted(STAGES)})")
+    args = {"defer_to_units": "false", "enable_mavros": "false"}
+    for flag, _ in STAGES.values():
+        args[flag] = "false"
+    flag, delay = STAGES[stage]
+    args[flag] = "true"
+    args[delay] = "0.0"
+    args.update({k: str(v) for k, v in (svc.get("args") or {}).items()})
+    argv = " ".join(f"{k}:={v}" for k, v in args.items())
+    return f"exec ros2 launch deepgis_vehicles earth_rover_system.launch.py {argv}"
 
+
+def emit_service(svc: dict, defaults: dict, targets: dict) -> tuple[str, str]:
     sid: str = svc["id"]
-    unit_name = f"er-{sid}.service"
+    target = svc.get("target", "none")
+    after = [f"er-{d}.service" for d in svc.get("after", []) or []]
+    requires = [f"er-{d}.service" for d in svc.get("requires", []) or []]
 
-    description = svc.get("description") or svc.get("name") or sid
+    unit_lines = []
+    install = ""
+    if target == "graphical":
+        after.append("graphical-session.target")
+        unit_lines.append("PartOf=graphical-session.target")
+        install = "\n[Install]\nWantedBy=graphical-session.target\n"
+    elif target != "none":
+        if target not in targets:
+            raise SystemExit(f"[install_user_units] {sid}: unknown target {target!r}")
+        unit = targets[target]["unit"]
+        unit_lines.append(f"PartOf={unit}")
+        # Keep retrying forever: a sensor that is unplugged and replugged comes back.
+        unit_lines.append("StartLimitIntervalSec=0")
+        install = f"\n[Install]\nWantedBy={unit}\n"
+    if after:
+        unit_lines.append(f"After={' '.join(after)}")
+    if requires:
+        unit_lines.append(f"Requires={' '.join(requires)}")
 
-    # Build After= / Requires= referencing the matching er-<dep>.service.
-    after_deps = [f"er-{d}.service" for d in svc.get("after", []) or []]
-    requires_deps = [f"er-{d}.service" for d in svc.get("requires", []) or []]
+    pre_lines = ""
+    if svc.get("wait_for"):
+        specs = " ".join(svc["wait_for"])
+        pre_lines = (
+            f"ExecStartPre=/bin/bash ${{EARTH_ROVER_HOME}}/scripts/startup/wait_for_hw.sh {specs}\n"
+            "TimeoutStartSec=infinity\n"
+        )
 
-    # Services that need a graphical session (e.g. kiosk Firefox) bind to
-    # graphical-session.target instead of er-mission.target so they fire only
-    # AFTER the desktop is up, and only ONCE per login.
-    needs_display = bool(svc.get("needs_display"))
-    if needs_display:
-        after_deps.append("graphical-session.target")
-        part_of = "graphical-session.target"
-        wanted_by = "graphical-session.target"
-        condition_line = "ConditionEnvironment=DISPLAY\n"
+    if target in ("none", "graphical"):
+        restart_lines = "Restart=on-failure\nRestartSec=10\n"
     else:
-        part_of = "er-mission.target"
-        wanted_by = "er-mission.target"
-        condition_line = ""
+        restart_lines = "Restart=always\nRestartSec=10\n"
 
-    after_line = f"After={' '.join(after_deps)}\n" if after_deps else ""
-    wants_line = ""  # use Requires= for hard deps; Wants= adds noise here
-    requires_line = (
-        f"Requires={' '.join(requires_deps)}\n" if requires_deps else ""
-    )
-
-    unit_type = svc.get("type", "simple")
-
-    # ROS env must be sourced inside the ExecStart shell so child processes
-    # have $ROS_DISTRO etc. picked up from the systemd Environment=.
+    command = stage_command(svc) if svc.get("stage") else svc["exec"]
     ros_setup = (
         "source /opt/ros/${ROS_DISTRO}/setup.bash; "
-        "[ -f ${ROS2_WS}/install/setup.bash ] && "
-        "source ${ROS2_WS}/install/setup.bash;"
+        "[ -f ${ROS2_WS}/install/setup.bash ] && source ${ROS2_WS}/install/setup.bash;"
     )
-    full_cmd = f"{ros_setup} {svc['exec']}"
+    description = (svc.get("description") or svc.get("name") or sid).strip()
 
-    # Restart policy:
-    #   oneshot           -> no restart, RemainAfterExit so deps see "active"
-    #   optional: true    -> Restart=no  (don't crash-loop on missing hardware
-    #                                     or unbuilt packages; failure is OK)
-    #   default           -> Restart=on-failure with a 5s backoff
-    if unit_type == "oneshot":
-        restart_line = "RemainAfterExit=yes\n"
-    elif svc.get("optional"):
-        restart_line = "Restart=no\n"
-    else:
-        restart_line = "Restart=on-failure\nRestartSec=5\n"
-
-    contents = SERVICE_TEMPLATE.format(
-        description=description.strip(),
-        part_of=part_of,
-        wanted_by=wanted_by,
-        after_line=after_line,
-        wants_line=wants_line,
-        requires_line=requires_line,
-        condition_line=condition_line,
-        unit_type=unit_type,
+    body = SERVICE_TEMPLATE.format(
+        header=HEADER,
+        description=description,
+        unit_lines="\n".join(unit_lines) + "\n",
         env_lines=build_env_block(defaults, svc),
-        exec_quoted=shell_quote(full_cmd),
-        restart_line=restart_line,
+        pre_lines=pre_lines,
+        exec_quoted=shell_quote(f"{ros_setup} {command}"),
+        restart_lines=restart_lines,
+        install=install,
     )
-    return unit_name, contents
+    return f"er-{sid}.service", body
 
 
-def emit_target(mission: dict, services: list[dict]) -> tuple[str, str]:
-    target_name = mission.get("target", "er-mission.target")
+def emit_targets(targets: dict, services: list[dict]) -> list[tuple[str, str]]:
+    out = []
+    for key, spec in targets.items():
+        members = [f"er-{s['id']}.service" for s in services
+                   if not s.get("external") and s.get("target") == key]
+        out.append((spec["unit"], TARGET_TEMPLATE.format(
+            header=HEADER,
+            description=spec.get("description", spec["unit"]),
+            wants=" ".join(members),
+        )))
+    return out
 
-    # graphical-session-bound services (e.g. kiosk) are intentionally NOT
-    # pulled in by the headless mission target; they fire from
-    # graphical-session.target after the desktop comes up.
-    unit_names = [
-        f"er-{s['id']}.service"
-        for s in services
-        if not s.get("needs_display")
-    ]
-    contents = TARGET_TEMPLATE.format(
-        description=mission.get("name", "Earth Rover Mission"),
-        wants=" ".join(unit_names),
-        after=" ".join(unit_names),
-    )
-    return target_name, contents
+
+def prune(output_dir: Path, keep: set[str]) -> list[str]:
+    """Stop and remove previously generated er-* units the manifest no longer produces."""
+    stale = []
+    for path in sorted(output_dir.glob("er-*")):
+        if path.name in keep or not path.is_file():
+            continue
+        try:
+            first = path.read_text().splitlines()[0]
+        except (OSError, IndexError):
+            continue
+        if first.strip() == HEADER:
+            stale.append(path)
+    for path in stale:
+        subprocess.run(["systemctl", "--user", "disable", "--now", path.name],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        path.unlink()
+        wants = output_dir / f"{path.name}.wants"
+        if wants.is_dir():
+            for link in wants.iterdir():
+                link.unlink()
+            wants.rmdir()
+    return [p.name for p in stale]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mission", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print unit contents without writing.",
-    )
+    parser.add_argument("--dry-run", action="store_true", help="Print unit contents without writing.")
+    parser.add_argument("--print-boot-targets", action="store_true",
+                        help="Print the target units marked boot: true and exit.")
     args = parser.parse_args()
 
     with args.mission.open() as fh:
         manifest = yaml.safe_load(fh)
 
-    mission = manifest.get("mission", {})
     defaults = manifest.get("defaults", {}) or {}
+    targets = manifest.get("targets", {}) or {}
     services = manifest.get("services", []) or []
 
+    if args.print_boot_targets:
+        print(" ".join(t["unit"] for t in targets.values() if t.get("boot")))
+        return 0
     if not services:
         print("[install_user_units] no services in mission.yaml", file=sys.stderr)
         return 1
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    units = [emit_service(s, defaults, targets) for s in services if not s.get("external")]
+    units += emit_targets(targets, services)
 
-    written = []
-    for svc in services:
-        name, body = emit_service(svc, defaults)
-        path = args.output_dir / name
-        if args.dry_run:
-            print(f"--- {path} ---")
-            print(body)
-        else:
-            path.write_text(body)
-        written.append(name)
-
-    target_name, target_body = emit_target(mission, services)
-    target_path = args.output_dir / target_name
     if args.dry_run:
-        print(f"--- {target_path} ---")
-        print(target_body)
-    else:
-        target_path.write_text(target_body)
-    written.append(target_name)
+        for name, body in units:
+            print(f"--- {args.output_dir / name} ---")
+            print(body)
+        return 0
 
-    if not args.dry_run:
-        print(f"[install_user_units] wrote {len(written)} units to {args.output_dir}")
-        for n in written:
-            print(f"   {n}")
-        # Best-effort daemon-reload so systemd picks up new files immediately.
-        rc = os.system("systemctl --user daemon-reload")
-        if rc != 0:
-            print(
-                "[install_user_units] WARN: 'systemctl --user daemon-reload' "
-                f"exited {rc}. You may need to run it manually.",
-                file=sys.stderr,
-            )
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    for name, body in units:
+        (args.output_dir / name).write_text(body)
+    removed = prune(args.output_dir, {name for name, _ in units})
 
-    print(
-        "\nUnits are installed but NOT enabled.  Bring the stack up manually:\n"
-        "  make mission-up                          # whole graph\n"
-        "  make ui-up                               # just the web-frontend layer\n"
-        "  systemctl --user start er-<unit>.service # individual service\n"
-        "  systemctl --user list-units 'er-*'\n"
-        "  journalctl --user -u er-vcs -f\n"
-    )
+    print(f"[install_user_units] wrote {len(units)} units to {args.output_dir}")
+    for name, _ in units:
+        print(f"   {name}")
+    for name in removed:
+        print(f"   removed stale {name}")
+    rc = os.system("systemctl --user daemon-reload")
+    if rc != 0:
+        print(f"[install_user_units] WARN: 'systemctl --user daemon-reload' exited {rc}.", file=sys.stderr)
     return 0
 
 

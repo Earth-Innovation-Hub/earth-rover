@@ -154,23 +154,16 @@ def mission_status(request):
     for svc in enriched:
         tiers.setdefault(svc["tier"], []).append(svc)
 
-    tier_labels = {
-        0: "Hardware Detection",
-        1: "Sensor / I-O Drivers",
-        2: "State Estimators",
-        3: "Web Bridge",
-        4: "Application",
-        5: "User Interface",
-    }
+    tier_labels = {int(k): v for k, v in (manifest.get("tiers") or {}).items()}
 
-    target_state = _query_unit(mission.get("target", "er-mission.target"))
+    target_state = _query_unit(mission.get("target", "er-sensors.target"))
 
     return JsonResponse({
         "status": "ok",
         "mission": {
             "name": mission.get("name", "Earth Rover Mission"),
             "description": mission.get("description", ""),
-            "target": mission.get("target", "er-mission.target"),
+            "target": mission.get("target", "er-sensors.target"),
             "target_state": target_state.get("ActiveState", "unknown"),
         },
         "tiers": [

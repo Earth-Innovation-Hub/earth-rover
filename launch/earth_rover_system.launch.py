@@ -13,9 +13,14 @@ Default startup order:
 
 Each stage is delayed enough to let the previous process initialize. The delays
 are launch arguments so field tuning does not require editing this file.
+
+On the rover the always-on systemd --user units (scripts/startup/mission.yaml)
+run one stage each through this file; a manual launch skips any stage whose
+unit is already up (defer_to_units:=false to override).
 """
 
 import os
+import subprocess
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -84,8 +89,39 @@ def _optional_stage(context, package: str, launch_file: str, launch_arguments=No
         return [LogInfo(msg=f'[earth_rover_system] Skipping {package}/{launch_file}: {exc}')]
 
 
+# Always-on systemd --user units (scripts/startup/mission.yaml) that own a stage's
+# hardware. A second driver on the same serial port, camera or UDP port fails or
+# fights the first, so a manual launch skips stages whose unit is up or waiting.
+_STAGE_UNITS = {
+    'enable_mavros': 'er-deepgis-mavros.service',
+    'enable_radio_vio': 'er-radio.service',
+    'enable_laser': 'er-laser.service',
+    'enable_grasshopper': 'er-grasshopper.service',
+    'enable_velodyne': 'er-velodyne.service',
+    'enable_spectrometer': 'er-spectrometer.service',
+}
+
+
+def _unit_running(unit: str) -> bool:
+    try:
+        state = subprocess.run(
+            ['systemctl', '--user', 'is-active', unit],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return state in ('active', 'activating', 'reloading')
+
+
 def launch_setup(context, *args, **kwargs):
     actions = []
+
+    if _bool_arg(context, 'defer_to_units'):
+        for flag, unit in _STAGE_UNITS.items():
+            enabled = str(context.launch_configurations.get(flag, '')).lower() in ('1', 'true', 'yes', 'on')
+            if enabled and _unit_running(unit):
+                context.launch_configurations[flag] = 'false'
+                actions.append(LogInfo(msg=f'[earth_rover_system] {unit} is running; skipping {flag}'))
 
     # Stage 1: MAVROS. Required for global/local position consumers downstream.
     if _bool_arg(context, 'enable_mavros'):
@@ -230,6 +266,8 @@ def launch_setup(context, *args, **kwargs):
 
 def generate_launch_description():
     return LaunchDescription([
+        DeclareLaunchArgument('defer_to_units', default_value='true',
+                              description='Skip stages whose always-on er-* unit is running or waiting for hardware.'),
         DeclareLaunchArgument('enable_mavros', default_value='true'),
         DeclareLaunchArgument(
             'fcu_url',

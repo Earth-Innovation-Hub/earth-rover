@@ -62,7 +62,7 @@ help:
 	@printf "  adsb-glide         - adsb_state_vectors_plot_glide.launch.py ($(RADIO_PKG))\n"
 	@printf "  sdr                - sdr.launch.py ($(RADIO_PKG))\n"
 	@printf "\n"
-	@printf "  system-launch      - sequenced MAVROS -> radio -> cameras -> spectrometer\n"
+	@printf "  system-launch      - sequenced launch; skips stages the er-* units already run\n"
 	@printf "  mavros             - mavros px4.launch (FCU+GCS from PIXHAWK_*/GCS_URL vars)\n"
 	@printf "  mavros-bg          - same, in background via systemd --user\n"
 	@printf "  gh-cam             - Grasshopper stereo cameras\n"
@@ -80,9 +80,9 @@ help:
 	@printf "  units-list         - systemctl --user list-units 'er-*'\n"
 	@printf "  units-tail UNIT=x  - journalctl --user -u er-x -f\n"
 	@printf "\n"
-	@printf "Manual mission launch (NOTHING auto-starts at boot anymore):\n"
-	@printf "  mission-up         - start the whole er-mission.target graph\n"
-	@printf "  mission-down       - stop everything\n"
+	@printf "Always-on mission (er-deepgis.target + er-sensors.target start at boot):\n"
+	@printf "  mission-up         - start both targets now\n"
+	@printf "  mission-down       - stop the sensor drivers (DeepGIS link stays up)\n"
 	@printf "  mission-status     - one-line state for every er-* unit\n"
 	@printf "  mission-tail UNIT=x - journalctl --user -u er-x -f (alias of units-tail)\n"
 	@printf "  ui-up / ui-down    - just the web-frontend layer\n"
@@ -156,8 +156,8 @@ mavros:
 		exec ros2 launch mavros px4.launch fcu_url:="$(PIXHAWK_DEVICE):$(PIXHAWK_BAUD)" gcs_url:="$(GCS_URL)"'
 
 mavros-bg:
-	systemctl --user start er-mavros.service
-	@echo "Started er-mavros.service.  Logs: journalctl --user -u er-mavros -f"
+	systemctl --user start er-deepgis-mavros.service
+	@echo "Started er-deepgis-mavros.service.  Logs: journalctl --user -u er-deepgis-mavros -f"
 
 # ---- Cameras / sensors -------------------------------------------------------
 
@@ -251,27 +251,25 @@ ifndef UNIT
 endif
 	journalctl --user -u er-$(UNIT) -f
 
-# ---- Manual mission launch ---------------------------------------------------
-# Auto-start at boot was deliberately removed.  These targets are the supported
-# way to bring the rover up; each invocation is an explicit operator decision.
+# ---- Always-on mission targets ----------------------------------------------
+# er-deepgis.target (MAVROS, telemetry, pose) and er-sensors.target (one unit per
+# sensor driver) are enabled at boot by units-install; these start/stop them by hand.
 
-# UI layer the operator usually wants up first so the Django mission console
-# at http://localhost:8000/mission/ can act as a launch panel for everything
-# else.  Order matters: rosbridge + web_video before vcs (Django depends on
-# both), kiosk last (waits for vcs).
+MISSION_TARGETS = er-deepgis.target er-sensors.target
 UI_UNITS = er-rosbridge.service er-web-video.service er-vcs.service er-kiosk.service
 
 mission-up:
-	systemctl --user start er-mission.target
+	systemctl --user start $(MISSION_TARGETS)
 	@echo
-	@echo "Mission target started.  Watch services come up with:"
+	@echo "Mission targets started.  Watch services come up with:"
 	@echo "    make mission-status"
 
+# Stops the sensor drivers only; the DeepGIS link stays up.
 mission-down:
-	systemctl --user stop er-mission.target
+	systemctl --user stop er-sensors.target
 	@sleep 2
 	systemctl --user reset-failed 'er-*' 2>/dev/null || true
-	@echo "Mission target stopped."
+	@echo "Sensor drivers stopped (er-deepgis.target left running)."
 
 mission-status:
 	@systemctl --user list-units 'er-*' --all --no-legend \
