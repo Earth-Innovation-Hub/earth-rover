@@ -64,6 +64,9 @@ USE_I18N = False
 USE_TZ = True
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
+# Tile servers (OpenStreetMap in particular) refuse browser requests without a Referer;
+# Django's default 'same-origin' strips it from cross-site tile fetches.
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'vehicle_control_station' / 'static']

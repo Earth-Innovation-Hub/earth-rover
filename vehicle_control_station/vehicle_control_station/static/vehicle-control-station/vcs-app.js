@@ -462,9 +462,26 @@ const aircraftMap = (function() {
     if (!mapEl) return null;
     // Default center: Phoenix metro area
     const m = L.map('aircraft-map').setView([33.45, -112.07], 10);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap'
-    }).addTo(m);
+    const osmAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+    const basemaps = {
+        'Dark': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors', maxZoom: 16
+        }),
+        'Satellite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom: 19
+        }),
+        'Topo': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            attribution: osmAttr + ', SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+            maxZoom: 17
+        }),
+        'OpenStreetMap': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: osmAttr, maxZoom: 19
+        })
+    };
+    const saved = localStorage.getItem('vcs-basemap');
+    (basemaps[saved] || basemaps['Dark']).addTo(m);
+    L.control.layers(basemaps, null, { position: 'topright' }).addTo(m);
+    m.on('baselayerchange', function(e) { localStorage.setItem('vcs-basemap', e.name); });
     return m;
 })();
 
