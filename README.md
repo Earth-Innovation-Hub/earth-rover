@@ -75,6 +75,16 @@ Figure 4: Mapping of a rocky feature set by the vehicle, by orbiting and collect
 
 Earth Rover includes an SDR-based ADS-B receiver pipeline (RTL-SDR or HydraSDR fronting `dump1090`) and a coupled state estimator that uses the constellation of decoded aircraft positions to estimate the trike's own receiver location and clock bias. The estimator combines a robust active-set least-squares solver with a Kalman-smoothed receiver state, and can be fused with visual-odometry landmark observations to provide a redundant pose estimate in GNSS-denied or degraded conditions. Real-time visualization is provided by RViz, a 2D top-down plot, a glide-profile plot, and a spherical-fisheye landmark VO plot. Launch entry points live in the **`radio_vio`** package: `sdr.launch.py`, `adsb.launch.py`, `adsb_aircraft_state_vectors{,_rviz}.launch.py`, `adsb_state_vectors_plot_2d.launch.py`, `adsb_state_vectors_plot_glide.launch.py`, `landmark_vo_plot_2d.launch.py`, `landmark_vo_plot_fisheye.launch.py`, `rtl_sdr.launch.py`, `rtl_adsb.launch.py`. Vehicle-side launches remain under **`deepgis_vehicles`** (`launch/` at repo root). Internal design notes are kept under `docs/` (untracked — request a copy if you need them).
 
+## Vehicle Control Station
+
+The onboard web console (`vehicle_control_station/`, served by `er-vcs` in
+`er-console.target`) shows live stereo cameras, spectrometer intensity,
+avionics gauges, and ADS-B situational awareness (map, local ENU plot, glide
+profile) over rosbridge. Recording is started from the same page via
+`er-record`. See [`vehicle_control_station/README.md`](vehicle_control_station/README.md).
+
+![Vehicle Control Station live view: stereo cameras, spectrometer, and ADS-B tracking](vehicle_control_station/screenshots/vcs-live.png)
+
 ## Natural Language Interaction and lifelong learning
 We anticipate interaction with a human user through command line interface, verbal interaction, and gestures. The command set may include navigational instructions such as "Follow me" which is integrated with the trike autonomy stack for visual tracking of a human leader. For mission planning however, the bulk of the commanding architecture may be natural language with generative AI in the backbone for tokenizing the instructions and generating optimal exploration plans.  
 

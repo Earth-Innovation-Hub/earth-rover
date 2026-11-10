@@ -1,5 +1,7 @@
 # Vehicle Control Station
 
+![Vehicle Control Station live view: stereo cameras, spectrometer, and ADS-B tracking](screenshots/vcs-live.png)
+
 A real-time web-based monitoring and control interface for the Earth Rover platform. This Django application provides comprehensive visualization of sensor data, camera feeds, and control capabilities for ROS-based robotic systems.
 
 ## Features
